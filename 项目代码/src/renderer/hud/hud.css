@@ -1,0 +1,439 @@
+/* 译文浮窗样式（F-12/F-13/F-14/F-17）
+   半透明卡片 + 白字，默认字号 14px（M2-T2）。
+   外观（主题色/背景色/不透明度/圆角/模糊/背景图）由 shared/theme.js 通过 CSS 变量下发。 */
+
+/* 背景图图层：位于卡片内部、文字之下，随卡片圆角与边框一起被裁切（需求 3） */
+.bg-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: var(--theme-image, none);
+  background-size: var(--theme-image-size, cover);
+  background-repeat: var(--theme-image-repeat, no-repeat);
+  background-position: center;
+  opacity: var(--theme-image-opacity, 0.35);
+}
+
+/* 背景图之上再压一层与背景同色的薄罩：图片是用户挑的照片，颜色不可控，
+   不加罩时浅色图会把整张卡片照亮、浅色译文读不清（实测截图对比过）。 */
+.bg-veil {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--hud-veil, rgba(18, 21, 28, 0.55));
+}
+
+html[data-has-image="0"] .bg-veil { display: none; }
+
+.hud {
+  position: fixed;
+  inset: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--hud-bg, rgba(18, 21, 28, 0.86));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--hud-radius, 12px);
+  /* 第二十轮：去掉这一层投影。窗口是透明的，投影画在窗口内 8px 的留白里，
+     深色主题下就是卡片外一圈黑边，用户明确说不好看。层次感改用细边框 + 背景模糊。 */
+  box-shadow: none;
+  backdrop-filter: blur(var(--hud-blur, 12px));
+  overflow: hidden;
+  font-size: 14px;
+}
+
+/* 右下角调整大小手柄（需求 3），仅在悬停时显形，避免干扰阅读 */
+.hud-resize {
+  position: fixed;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background:
+    linear-gradient(135deg, transparent 45%, var(--fg-faint) 45%, var(--fg-faint) 55%, transparent 55%),
+    linear-gradient(135deg, transparent 70%, var(--fg-faint) 70%, var(--fg-faint) 80%, transparent 80%);
+}
+.hud:hover .hud-resize { opacity: 0.8; }
+.hud-resize:hover { opacity: 1; }
+
+.hud-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+  color: var(--fg-dim);
+  flex: 0 0 auto;
+  cursor: grab;
+  /* 标题栏底片：背景图再花哨，图标也必须看得见 */
+  background: var(--hud-head-bg, rgba(18, 21, 28, 0.72));
+  text-shadow: var(--text-shadow, none);
+}
+.hud-head:active { cursor: grabbing; }
+
+/* 按钮自带浅色底片与描边，避免落在亮部背景上"消失" */
+.hud-head button.icon {
+  background: var(--bg-elevated-veil, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 7px;
+}
+.hud-head button.icon:hover { background: var(--bg-hover); }
+
+.hud-head .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(62, 207, 142, 0.7);
+  flex: 0 0 auto;
+}
+.hud-head .dot.busy { background: var(--warn); box-shadow: 0 0 8px rgba(245, 181, 68, 0.7); }
+.hud-head .dot.err { background: var(--err); box-shadow: 0 0 8px rgba(255, 107, 107, 0.7); }
+.hud-head .title { font-weight: 600; color: var(--fg); }
+
+/* 第二十五轮需求 3：暂停/继续用同一套内联 SVG，卡片与字幕条共用，
+ * 状态由 data-state="running|paused" 驱动显隐，避免两处图标风格不一致。 */
+.icon .ico {
+  width: 13px;
+  height: 13px;
+  display: block;
+  fill: currentColor;
+  pointer-events: none;
+}
+.icon[data-state="running"] .ico-play { display: none; }
+.icon[data-state="paused"] .ico-pause { display: none; }
+
+.badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+  border: 1px solid var(--accent-border, rgba(76, 141, 255, 0.35));
+  color: var(--accent-strong);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge.offline {
+  background: rgba(245, 181, 68, 0.14);
+  border-color: rgba(245, 181, 68, 0.4);
+  color: #ffd88a;
+}
+
+/* 内容层必须显式抬到背景图/薄罩之上：.bg-layer 与 .bg-veil 是 position:absolute，
+   按 CSS 绘制顺序会盖住未定位的普通流内容——表现为"调图片不透明度时文字和按钮一起变淡"
+   （用户实测反馈）。三块内容统一 relative + z-index:1。 */
+.hud-head,
+.hud-body,
+.hud-foot {
+  position: relative;
+  z-index: 1;
+}
+
+.hud-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 6px;
+  user-select: text;
+}
+
+.translation {
+  /* 必须跟随主题：写死浅色会让"浅底深字"主题下的译文不可见 */
+  color: var(--fg, #f2f5fa);
+  line-height: 1.62;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: inherit;
+  text-shadow: var(--text-shadow, none);
+}
+
+.placeholder { color: var(--fg-faint); font-size: 13px; line-height: 1.6; text-shadow: var(--text-shadow, none); }
+.placeholder[hidden] { display: none; }
+
+.error {
+  color: #ffc9c9;
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.32);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 8px;
+}
+.error[hidden] { display: none; }
+
+.source-wrap { margin-top: 10px; border-top: 1px dashed rgba(255, 255, 255, 0.1); padding-top: 8px; }
+/* 第二十五轮需求 4：原文开关移到页脚左下角，默认收起，点开才看得到原文 */
+.hud-foot .source-toggle {
+  font-size: 11px;
+  color: var(--fg-faint);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  text-shadow: var(--text-shadow, none);
+}
+.hud-foot .source-toggle:hover { color: var(--fg-dim); background: var(--bg-hover); }
+.hud-foot .source-toggle[aria-expanded="true"] { color: var(--accent-strong); }
+.hud-foot .source-toggle[hidden] { display: none; }
+.source {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow-y: auto;
+  text-shadow: var(--text-shadow, none);
+}
+.source[hidden] { display: none; }
+
+.history { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.history[hidden] { display: none; }
+.history-item {
+  font-size: 11px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.history-item:hover { background: rgba(255, 255, 255, 0.06); color: var(--fg-dim); }
+
+.hud-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 10px;
+  color: var(--fg-faint, rgba(255, 255, 255, 0.42));
+  text-shadow: var(--text-shadow, none);
+}
+.hud-foot .status.warn { color: var(--warn); }
+.hud-foot .status.err { color: var(--err); }
+
+/* 浮窗较窄时收紧内边距 */
+@media (max-width: 360px) {
+  .hud { inset: 6px; }
+  .hud-body { padding: 8px; }
+}
+
+/* ---------------------------------------------------------------- 视频 / 游戏字幕条
+   第十八轮需求 3：卡片会盖掉一大块游戏画面，改成「细长 + 透明 + 文字有描边」的字幕带：
+   整条去掉底色与投影，靠三重 text-shadow + 细描边让白字压在任何画面上都读得清；
+   正文区域 pointer-events:none，点击/拖拽直接落到下层游戏；顶部细条是唯一可点区域。 */
+body.mode-subtitle .hud {
+  inset: 0 8px 6px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* 可选极淡底衬：亮背景（雪地/白天空）上文字发飘时用 */
+body.mode-subtitle.hud-backdrop .hud {
+  background: rgba(0, 0, 0, 0.26);
+  border-radius: 10px;
+}
+
+body.mode-subtitle .bg-layer,
+body.mode-subtitle .bg-veil { display: none; }
+
+/* 第二十五轮需求 2：字幕模式的控制与拖动合并成居中的 .hud-dock，
+ * 原来的顶部握把整块不再出现，避免两个可拖区域互相抢手势。 */
+body.mode-subtitle .hud-head { display: none; }
+
+body.mode-subtitle .hud-body {
+  width: 100%;
+  height: 100%;
+  padding: 14px 26px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+body.mode-subtitle .translation {
+  font-size: var(--subtitle-font-size, 24px);
+  line-height: 1.32;
+  font-weight: 600;
+  text-align: center;
+  color: #ffffff;
+  /* 第二十一轮需求 3：长译文不再直接截断，交给 renderer 的 fitSubtitleFont()
+     逐级缩小字号直到整段放下；这里允许用满整个字幕条高度。 */
+  max-height: 100%;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 三重描边式投影：任何亮/暗画面上都能读清，且不像盒子那样遮挡画面 */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 5px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(0, 0, 0, 0.7);
+  -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.42);
+  paint-order: stroke fill;
+}
+
+body.mode-subtitle .placeholder,
+body.mode-subtitle .hud-foot,
+body.mode-subtitle .source-wrap,
+body.mode-subtitle .history,
+body.mode-subtitle .hud-resize { display: none; }
+
+/* ---------------------------------------------------------------- 字幕模式：二合一控制条
+ * 第二十五轮需求 2：把「拖动区」和「设置区」合并成一个正中上方的手柄：
+ *   - 短按 → 向左右两侧展开设置按钮（居中定位，所以是往两边长）；
+ *   - 按住拖动 → 移动字幕条（走 HUD_DRAG，与卡片模式同一套主进程轮询）。
+ * 这样用户不用在"右上角找设置"和"顶部找拖动"之间来回看。
+ */
+.hud-dock {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* 层级要高于两侧热区（热区 z-index:6），保证按钮优先接到点击 */
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 12px;
+  /* 第二十五轮用户反馈：没用的时候不要挂着边框和设置按钮。
+     收起态只留一个淡淡的握把（背景/描边全透明），hover 才浮出胶囊。 */
+  background: transparent;
+  border: 1px solid transparent;
+  /* 收起态完全透明，靠握把自己保证可读：白字 + 暗描边，压在亮画面（雪地/白墙）上也看得见 */
+  opacity: 0.62;
+  transition: opacity 160ms ease, background 160ms ease, border-color 160ms ease;
+  /* 字幕模式下 `.hud` 整块是 pointer-events:none，子元素必须显式恢复，
+     否则 elementFromPoint 命不中 → 主进程维持穿透 → 真实鼠标点不动。 */
+  pointer-events: auto;
+}
+.hud-dock[hidden] { display: none; }
+.hud-dock:hover,
+.hud-dock.expanded {
+  opacity: 1;
+  background: rgba(10, 14, 22, 0.82);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.dock-side { display: none; align-items: center; gap: 2px; }
+.hud-dock.expanded .dock-side { display: flex; }
+
+.dock-side .icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: auto;
+}
+.dock-side .icon:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* 手柄：既是"展开/收起"按钮，也是"拖动窗口"的抓手 */
+.dock-handle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  cursor: grab;
+  pointer-events: auto;
+}
+.dock-handle:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.dock-handle:active,
+.dock-handle.dragging { cursor: grabbing; background: rgba(76, 141, 255, 0.28); }
+
+.dock-grip {
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 2px;
+  pointer-events: none;
+  /* 收起态没有底色，纯白字压在浅色画面上会看不见 → 用暗描边 + 阴影拉出对比 */
+  color: #fff;
+  text-shadow: 0 0 1.5px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.dock-caret {
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.85;
+  pointer-events: none;
+  transition: transform 160ms ease;
+}
+.hud-dock.expanded .dock-caret { transform: rotate(180deg); }
+
+/* 边缘拖拽改尺寸：左右改宽度、底部改高度，只在字幕模式出现。
+   同样要显式 pointer-events:auto，否则 `.hud` 的穿透设置会把这些热区一起吃掉。
+   第二十一轮需求 1：8px/7px 太难命中，加宽到 14px/12px，并在 hover 时给一条亮线做提示。 */
+.hud-edge {
+  position: fixed;
+  pointer-events: auto;
+  z-index: 6;
+}
+.hud-edge[hidden] { display: none; }
+/* 第二十三轮：热区厚度随窗口尺寸走（渲染进程算好写进 --edge-x/--edge-y），
+   字幕条越大，能抓的地方越大，不用再去找那 14px。 */
+.hud-edge.left { left: 0; top: 0; bottom: 0; width: var(--edge-x, 14px); cursor: ew-resize; }
+.hud-edge.right { right: 0; top: 0; bottom: 0; width: var(--edge-x, 14px); cursor: ew-resize; }
+/* 底部横条：拖动改字幕条高度（第二十轮，「动态调整显示区域大小」）
+ * 第二十三轮：指示条不再是一个小点居中，而是横向铺开（两侧各留 10%），
+ * 这样一眼就能看出「整条底边都能拖」，而不是只有中间那一小段。 */
+.hud-edge.bottom { left: 0; right: 0; bottom: 0; height: var(--edge-y, 12px); cursor: ns-resize; }
+.hud-edge::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--edge-bar, 3px);
+  height: var(--edge-bar-len, 34px);
+  margin: calc(var(--edge-bar-len, 34px) / -2) 0 0 calc(var(--edge-bar, 3px) / -2);
+  border-radius: 999px;
+  /* 双色描边：亮条 + 暗影，浅底深底都能看清；
+     第二十四轮把不透明度降到 0.3，够提示但不抢正文 */
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22), 0 0 3px rgba(0, 0, 0, 0.16);
+  opacity: 0.3;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+/* 底边指示条：短一截、居中，比整条铺开低调得多（第二十四轮「太大了应该小点」） */
+.hud-edge.bottom::after {
+  left: 50%;
+  margin-left: calc(var(--bottom-bar-len, 160px) / -2);
+  width: var(--bottom-bar-len, 160px);
+  height: var(--edge-bar, 3px);
+  margin-top: calc(var(--edge-bar, 3px) / -2);
+}
+.hud-edge:hover::after { opacity: 0.75; background: #fff; }
+.hud-edge:hover { background: linear-gradient(rgba(120, 170, 255, 0.14), rgba(120, 170, 255, 0.14)); }
+
+body.mode-subtitle .error {
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 107, 107, 0.5);
+  font-size: 15px;
+}

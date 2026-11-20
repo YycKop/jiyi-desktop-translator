@@ -1,0 +1,10 @@
+﻿const path = require('path');
+const p = 'D:/桌面翻译助手/项目代码/src/core/config/store.js';
+const { ConfigStore } = require(p);
+const s = new ConfigStore({ file: 'D:/桌面翻译助手/dist/win-x64/userdata/config.json' });
+s.load();
+console.log('raw offline.contextSize =', s.raw().offline.contextSize);
+console.log('raw offline.keys =', Object.keys(s.raw().offline).join(','));
+const { LlamaServerManager } = require('D:/桌面翻译助手/项目代码/src/core/llama/server.js');
+const m = new LlamaServerManager({ offline: s.raw().offline });
+console.log('args:', m.buildArgs().join(' '));

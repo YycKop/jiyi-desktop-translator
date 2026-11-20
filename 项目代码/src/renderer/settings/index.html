@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self'; script-src 'self'; connect-src 'none'" />
+  <title>即译 · 设置</title>
+  <link rel="stylesheet" href="../shared/base.css" />
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body class="solid">
+  <div class="bg-layer" id="bg-layer" hidden></div>
+  <header class="titlebar drag-region">
+    <img class="app-icon" src="../../../assets/app.png" alt="即译" />
+    <img class="brand-wordmark only-dark" src="../../../assets/wordmark-light.png" alt="即译" />
+    <img class="brand-wordmark only-light" src="../../../assets/wordmark-dark.png" alt="" aria-hidden="true" />
+    <span class="brand-tagline">即时翻译，沟通无界</span>
+    <span class="version" id="version"></span>
+    <span class="spacer"></span>
+    <button class="icon no-drag" id="btn-close" title="关闭设置">×</button>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <button class="tab active" data-tab="general">通用</button>
+      <button class="tab" data-tab="input">输入翻译</button>
+      <button class="tab" data-tab="appearance">外观</button>
+      <button class="tab" data-tab="apis">API 接口</button>
+      <button class="tab" data-tab="hotkey">热键</button>
+      <button class="tab" data-tab="offline">离线模型</button>
+      <button class="tab" data-tab="about">关于</button>
+    </nav>
+
+    <main class="content">
+      <!-- 通用 -->
+      <section class="pane active" id="pane-general">
+        <h2>翻译</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>目标语言</span>
+            <select id="target-lang"></select>
+            <div class="hint">译文统一输出为该语言（F-07）</div>
+          </label>
+          <label class="field">
+            <span>源语言</span>
+            <select id="source-lang"></select>
+            <div class="hint">自动检测适用于绝大多数场景</div>
+          </label>
+          <label class="field">
+            <span>翻译优先级</span>
+            <select id="priority">
+              <option value="online">在线优先（离线兜底）</option>
+              <option value="offline">离线优先（在线兜底）</option>
+            </select>
+            <div class="hint">两条通道同时可用：优先那条失败时自动换另一条</div>
+          </label>
+        </div>
+
+        <h2>识别引擎</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>文字识别引擎</span>
+            <select id="ocr-engine">
+              <option value="auto">自动（ONNX 优先，失败回退系统 OCR）</option>
+              <option value="rapid">ONNX · PP-OCRv4（中文/小字更准）</option>
+              <option value="winrt">Windows 内置 OCR（零额外内存）</option>
+              <option value="tesseract">Tesseract（需自行安装）</option>
+            </select>
+            <div class="hint" id="ocr-engine-hint">切换后下一轮识别生效，无需重启</div>
+          </label>
+          <label class="field">
+            <span>识别语言</span>
+            <select id="ocr-lang">
+              <option value="auto">自动（中英优先，低分再试日/韩）</option>
+              <option value="ch">中文 / 英文</option>
+              <option value="japan">日文（含假名）</option>
+              <option value="korean">韩文（谚文）</option>
+            </select>
+            <div class="hint" id="ocr-lang-hint">日文/韩文要用 PP-OCRv4 对应模型；固定语言时更快，自动模式更省心</div>
+          </label>
+        </div>
+
+        <h2>浮窗</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>浮窗样式</span>
+            <select id="hud-mode">
+              <option value="card">卡片模式（半透明面板）</option>
+              <option value="subtitle">视频 · 游戏模式（字幕条）</option>
+            </select>
+            <div class="hint">字幕条细长透明、只留描边文字，尽量不挡画面</div>
+          </label>
+          <label class="field" id="fld-subtitle-font">
+            <span>字幕字号（px）</span>
+            <input type="number" id="hud-subtitle-font" min="12" max="48" step="1" />
+            <div class="hint">隔着游戏画面也看得清，建议 22–30</div>
+          </label>
+          <label class="field" id="fld-subtitle-backdrop">
+            <span>字幕底衬</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="hud-subtitle-backdrop" /><i></i></span>
+              <span class="muted">亮画面上文字发飘时加一层极淡底</span>
+            </label>
+          </label>
+          <label class="field" id="fld-subtitle-width">
+            <span>字幕宽度（px）</span>
+            <input type="number" id="hud-subtitle-width" min="0" max="2400" step="20" />
+            <div class="hint">0 = 自动（约占屏幕 86%）；也可以直接拖字幕条左右边缘</div>
+          </label>
+          <label class="field" id="fld-subtitle-height">
+            <span>字幕高度（px）</span>
+            <input type="number" id="hud-subtitle-height" min="0" max="400" step="8" />
+            <div class="hint">0 = 自动（96px，约两行）；也可以直接拖字幕条底边</div>
+          </label>
+          <label class="field">
+            <span>显示位置</span>
+            <select id="hud-position">
+              <option value="auto">自动（框选区域旁）</option>
+              <option value="top">框选区域上方</option>
+              <option value="bottom">框选区域下方</option>
+              <option value="left">框选区域左侧</option>
+              <option value="right">框选区域右侧</option>
+              <option value="fixed">固定位置（当前拖动后的位置）</option>
+            </select>
+            <div class="hint">全屏视频建议选「上方」，避免遮挡字幕（M5-T2）</div>
+          </label>
+          <label class="field">
+            <span>字号（px）</span>
+            <input type="number" id="hud-font" min="10" max="32" step="1" />
+          </label>
+          <label class="field">
+            <span>浮窗尺寸（宽 × 高）</span>
+            <div class="row">
+              <input type="number" id="hud-width" min="280" max="1200" step="10" />
+              <span class="faint">×</span>
+              <input type="number" id="hud-height" min="96" max="900" step="10" />
+            </div>
+            <div class="hint">也可以直接拖浮窗右下角的小三角调整</div>
+          </label>
+          <label class="field">
+            <span>高度自适应译文</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="hud-auto-height" /><i></i></span>
+              <span class="muted">内容变长时自动加高，不出现滚动条</span>
+            </label>
+          </label>
+          <label class="field">
+            <span>浮窗引擎标识</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="hud-show-engine" /><i></i></span>
+              <span class="muted">显示当前使用的翻译引擎（M4-T5）</span>
+            </label>
+          </label>
+        </div>
+
+        <h2>启动</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>点击图标时打开</span>
+            <select id="launch-action">
+              <option value="settings">设置页</option>
+              <option value="hud">译文浮窗</option>
+            </select>
+          </label>
+          <div class="field">
+            <span>后台与退出</span>
+            <p class="hint">关掉设置页与浮窗后任务栏图标消失，但程序仍在后台；点托盘图标可再次打开。
+              彻底退出请用「关于 → 退出程序」，或在托盘图标上右键选择「退出」。</p>
+          </div>
+          <label class="field">
+            <span>悬浮球</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="ball-enabled" /><i></i></span>
+              <span class="muted">常驻桌面，悬停展开设置 / 输入 / 浮窗 / 退出</span>
+            </label>
+            <div class="hint">本机通知区域不接受新图标，悬浮球是更可靠的常驻入口</div>
+          </label>
+        </div>
+
+        <h2>轮询</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>默认轮询间隔</span>
+            <select id="interval">
+              <option value="300">每 0.3 秒（最快，实时字幕）</option>
+              <option value="500">每 0.5 秒</option>
+              <option value="800">每 0.8 秒</option>
+              <option value="1000">每 1 秒</option>
+              <option value="2000">每 2 秒</option>
+              <option value="3000">每 3 秒</option>
+              <option value="5000">每 5 秒</option>
+            </select>
+            <span class="hint">越短越跟手，但截图/识别/翻译的开销也越高；游戏字幕建议 0.3–0.8 秒，看视频建议 1–2 秒。</span>
+          </label>
+          <label class="field">
+            <span>文字未变化时</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="dedupe" /><i></i></span>
+              <span class="muted">跳过重复翻译，降低 API 消耗</span>
+            </label>
+            <div class="hint" id="dedupe-hint">最小重译间隔：1200ms</div>
+          </label>
+        </div>
+
+        <div class="row mt-6">
+          <button id="btn-run-once">立即翻译上次区域</button>
+          <button id="btn-select">重新框选区域</button>
+          <button id="btn-reset-region" class="ghost">清除已保存区域</button>
+        </div>
+        <div class="region-info" id="region-info">尚未保存框选区域</div>
+      </section>
+
+      <!-- 外观（需求 1：主题色 / 背景色 / 透明度 / 背景图） -->
+      <!-- 输入翻译：不走截图/OCR，直接把文字交给同一条翻译链路（联网 API → 离线模型） -->
+      <section class="pane" id="pane-input">
+        <h2>输入翻译</h2>
+        <label class="field">
+          <span>原文</span>
+          <textarea id="input-source" rows="7" placeholder="在这里输入或粘贴要翻译的文字，Ctrl+Enter 立即翻译"></textarea>
+          <div class="hint">
+            共 <b id="input-count">0</b> 字 · 目标语言 <b id="input-target">中文（简体）</b> ·
+            与浮窗共用同一套 API 与离线模型；不截图、不外传
+          </div>
+        </label>
+        <div class="row actions">
+          <button id="btn-input-translate" class="btn primary">翻译（Ctrl+Enter）</button>
+          <button id="btn-input-clear" class="btn">清空</button>
+          <button id="btn-input-copy" class="btn">复制译文</button>
+          <span class="hint" id="input-status"></span>
+        </div>
+        <label class="field">
+          <span>译文</span>
+          <div id="input-result" class="input-result placeholder">译文会显示在这里</div>
+        </label>
+        <div class="hint">输入翻译与浮窗共用「目标语言」设置（在「通用」页切换）。</div>
+      </section>
+
+      <section class="pane" id="pane-appearance">
+        <h2>主题</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>主题色</span>
+            <div class="row">
+              <input type="color" id="theme-accent" />
+              <span class="mono faint" id="theme-accent-hex">#4c8dff</span>
+            </div>
+            <div class="hint">按钮、超链接、引擎标识使用该颜色</div>
+          </label>
+          <label class="field">
+            <span>背景色</span>
+            <div class="row">
+              <input type="color" id="theme-bg" />
+              <span class="mono faint" id="theme-bg-hex">#12151c</span>
+            </div>
+            <div class="hint">浅色背景会自动切换为深色文字</div>
+          </label>
+          <label class="field">
+            <span>字体颜色</span>
+            <div class="row">
+              <input type="color" id="theme-text" value="#e8ecf3" />
+              <span class="mono faint" id="theme-text-hex">自动</span>
+              <button class="btn ghost sm" id="btn-theme-text-auto" title="恢复为按背景自动计算">跟随背景</button>
+            </div>
+            <div class="hint">影响译文与原文；「自动」= 深底浅字 / 浅底深字，点「跟随背景」可恢复</div>
+          </label>
+        </div>
+
+        <div class="row wrap mt-6" id="theme-presets">
+          <span class="faint">预设：</span>
+          <button class="preset-dot" data-accent="#4c8dff" data-bg="#12151c" title="默认蓝"></button>
+          <button class="preset-dot" data-accent="#a97bff" data-bg="#141220" title="紫色"></button>
+          <button class="preset-dot" data-accent="#3ecf8e" data-bg="#0f1a17" title="翠绿"></button>
+          <button class="preset-dot" data-accent="#ff8a4c" data-bg="#1b1410" title="暖橙"></button>
+          <button class="preset-dot" data-accent="#ff5c8a" data-bg="#1a1016" title="玫红"></button>
+          <button class="preset-dot" data-accent="#1f6feb" data-bg="#f4f6fb" title="浅色"></button>
+        </div>
+
+        <div class="grid2 mt-12">
+          <label class="field">
+            <span>不透明度 <b id="theme-opacity-val">84%</b></span>
+            <input type="range" id="theme-opacity" min="30" max="100" step="1" />
+          </label>
+          <label class="field">
+            <span>背景模糊 <b id="theme-blur-val">12px</b></span>
+            <input type="range" id="theme-blur" min="0" max="30" step="1" />
+          </label>
+          <label class="field">
+            <span>圆角 <b id="theme-radius-val">12px</b></span>
+            <input type="range" id="theme-radius" min="0" max="28" step="1" />
+          </label>
+        </div>
+
+        <h2>背景图（两处可分别设置）</h2>
+        <div class="img-slot">
+          <div class="slot-title">浮窗背景图</div>
+          <div class="row wrap">
+            <button id="btn-hud-image">选择图片…</button>
+            <button id="btn-hud-image-clear" class="ghost">清除</button>
+            <span class="faint" id="hud-image-name">未设置</span>
+          </div>
+          <div class="row wrap mt-12">
+            <span class="faint">图片不透明度 <b id="hud-image-opacity-val">35%</b></span>
+            <input type="range" id="hud-image-opacity" min="0" max="100" step="1" />
+          </div>
+        </div>
+
+        <div class="img-slot">
+          <div class="slot-title">设置页背景图</div>
+          <div class="row wrap">
+            <button id="btn-settings-image">选择图片…</button>
+            <button id="btn-settings-image-clear" class="ghost">清除</button>
+            <span class="faint" id="settings-image-name">未设置（沿用浮窗图）</span>
+          </div>
+          <div class="row wrap mt-12">
+            <span class="faint">图片不透明度 <b id="settings-image-opacity-val">35%</b></span>
+            <input type="range" id="settings-image-opacity" min="0" max="100" step="1" />
+          </div>
+        </div>
+
+        <div class="grid2 mt-12">
+          <label class="field">
+            <span>填充方式</span>
+            <select id="theme-image-fit">
+              <option value="cover">铺满（裁剪）</option>
+              <option value="contain">完整显示</option>
+              <option value="tile">平铺</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint">两处各自独立：浮窗与设置页可以放不同图片、用不同不透明度；设置页留空时会沿用浮窗那张。浮窗侧会自动限制图片不透明度、加底部罩层，并给标题栏与按钮加底片，保证译文和图标任何时候都清晰。图片只复制到本机数据目录，不上传任何服务器；单张上限 8 MB。</div>
+
+        <h2>预览</h2>
+        <div class="preview-wrap">
+          <div class="hud-preview" id="hud-preview">
+            <div class="preview-bg" id="preview-bg"></div>
+            <div class="preview-head">
+              <span class="dot-mini"></span>
+              <span class="preview-title">译文</span>
+              <span class="spacer"></span>
+              <span class="badge-mini" id="preview-badge">引擎：DeepSeek</span>
+            </div>
+            <div class="preview-body" id="preview-body">窗外下着小雨，桌面上浮现出一行刚翻译好的句子。</div>
+            <div class="preview-foot">引擎：DeepSeek · 812ms · 20:14:05</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- API 接口 -->
+      <section class="pane" id="pane-apis">
+        <div class="row pane-head">
+          <div>
+            <h2 class="m-0">API 接口</h2>
+            <div class="hint">按顺序串行尝试：首个成功即采用，失败或超时才切到下一个（最多 2 个），全部失败回退离线模型。</div>
+          </div>
+          <span class="spacer"></span>
+          <button class="primary" id="btn-add-api">+ 添加接口</button>
+        </div>
+        <div class="api-list" id="api-list"></div>
+        <div class="empty" id="api-empty" hidden>
+          还没有配置联网 API。仅使用离线模型时请点击「离线模型」完成模型配置。
+        </div>
+        <div class="hint mt-12">
+          密钥使用 AES-256-GCM 加密后保存在本机（密钥由机器指纹派生），界面只显示掩码（KEY-01 / F-08）。
+        </div>
+      </section>
+
+      <!-- 热键 -->
+      <section class="pane" id="pane-hotkey">
+        <h2>全局热键</h2>
+        <div class="hint">点击「修改」后按下新组合键即可重新绑定。热键被占用时（例如被游戏或输入法占用）会在此提示（REV-001 G-02）。</div>
+        <div class="hotkey-list" id="hotkey-list"></div>
+        <div class="hotkey-status" id="hotkey-status"></div>
+      </section>
+
+      <!-- 离线模型 -->
+      <section class="pane" id="pane-offline">
+        <h2>离线翻译（llama.cpp）</h2>
+        <div class="hint">
+          离线模式使用 HY-MT1.5-1.8B 的 GGUF 量化模型（推荐 2-bit ≈ 574MB，或 1.25-bit ≈ 440MB）。
+          受网络限制，模型需自行下载后在此选择文件；未安装模型时应用会自动回退到联网 API。
+        </div>
+        <div class="card status-card" id="model-status">
+          <div class="row"><span class="muted">状态</span><span class="spacer"></span><span id="model-state">未知</span></div>
+          <div class="row"><span class="muted">llama-server</span><span class="spacer"></span><span class="mono nowrap" id="model-binary">-</span></div>
+          <div class="row"><span class="muted">模型文件</span><span class="spacer"></span><span class="mono nowrap" id="model-file">-</span></div>
+          <div class="row"><span class="muted">服务地址</span><span class="spacer"></span><span class="mono" id="model-url">-</span></div>
+        </div>
+        <div class="row mt-12">
+          <button id="btn-pick-model">选择 GGUF 模型…</button>
+          <button id="btn-start-model">启动服务</button>
+          <button id="btn-stop-model" class="ghost">停止服务</button>
+          <button id="btn-refresh-model" class="ghost">刷新状态</button>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span>端口</span>
+            <input type="number" id="offline-port" min="1024" max="65535" />
+            <div class="hint">默认 8081，仅监听 127.0.0.1，并强制 CORS 白名单（SEC-CORS-01）</div>
+          </label>
+          <label class="field">
+            <span>线程数</span>
+            <input type="number" id="offline-threads" min="1" max="64" placeholder="留空自动" />
+          </label>
+          <label class="field">
+            <span>llama-server 路径</span>
+            <input type="text" id="offline-server" placeholder="留空自动查找 runtime\\llama\\llama-server.exe" />
+          </label>
+          <label class="field">
+            <span>随应用启动</span>
+            <label class="inline-switch">
+              <span class="switch"><input type="checkbox" id="offline-autostart" /><i></i></span>
+              <span class="muted">启动应用时自动拉起离线服务</span>
+            </label>
+          </label>
+          <label class="field">
+            <span>空闲卸载（分钟）</span>
+            <input type="number" id="offline-idle" min="0" max="60" step="1" />
+            <div class="hint">默认 10 分钟；0 = 一直常驻。模型常驻约 2 GB 内存，闲下来会自动释放，下次用到再拉起（约 5–10 秒）</div>
+          </label>
+        </div>
+      </section>
+
+      <!-- 关于 -->
+      <section class="pane" id="pane-about">
+        <h2>版本信息</h2>
+        <div class="card" id="about-versions"></div>
+        <h2>隐私与安全</h2>
+        <div class="card mini">
+          <ul class="tight">
+            <li>截图仅采集你框选的区域，不注入目标进程、不做全屏或后台定时截屏。</li>
+            <li>OCR 与离线翻译全部在本机完成；联网翻译只会发送「识别出的文本」到你自行配置的接口。</li>
+            <li>API 密钥加密存储，界面掩码显示，日志中永不记录密钥与原文全文。</li>
+            <li>未包含任何遥测或数据上报代码。</li>
+          </ul>
+        </div>
+        <h2>诊断</h2>
+        <div class="row wrap">
+          <button id="btn-open-logs">打开日志目录</button>
+          <button id="btn-perf" class="ghost">内存采样</button>
+          <button id="btn-selftest" class="ghost">引擎自检</button>
+          <button id="btn-tray-retry" class="ghost">重新挂载托盘图标</button>
+          <button id="btn-quit" class="ghost">退出程序</button>
+        </div>
+        <p class="hint" id="tray-state">托盘图标状态：检测中…</p>
+        <pre class="diag" id="diag-out"></pre>
+      </section>
+    </main>
+  </div>
+
+  <!-- API 编辑弹窗 -->
+  <div class="modal-mask" id="modal-mask" hidden>
+    <div class="modal">
+      <header>
+        <span id="modal-title">添加接口</span>
+        <span class="spacer"></span>
+        <button class="icon" id="modal-close" title="关闭">×</button>
+      </header>
+      <div class="modal-body">
+        <label class="field">
+          <span>预设模板</span>
+          <select id="m-preset"><option value="">自定义</option></select>
+          <div class="hint">选择后自动填入 BaseURL 与模型名，可再修改</div>
+        </label>
+        <label class="field">
+          <span>显示名称</span>
+          <input type="text" id="m-name" placeholder="例如：DeepSeek" maxlength="40" />
+        </label>
+        <label class="field">
+          <span>BaseURL</span>
+          <input type="text" id="m-baseurl" placeholder="https://api.example.com/v1" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>API Key</span>
+          <div class="row">
+            <input type="password" id="m-key" placeholder="sk-..." autocomplete="off" spellcheck="false" class="grow" />
+            <button class="icon" id="m-eye" title="显示/隐藏">👁</button>
+          </div>
+          <div class="hint">密钥仅在本机加密保存；编辑时留空表示不修改</div>
+        </label>
+        <label class="field">
+          <span>模型名</span>
+          <input type="text" id="m-model" placeholder="deepseek-chat" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>System Prompt（可选）</span>
+          <textarea id="m-prompt" rows="3" placeholder="留空使用默认翻译提示词"></textarea>
+        </label>
+        <label class="field">
+          <span>启用</span>
+          <label class="inline-switch">
+            <span class="switch"><input type="checkbox" id="m-enabled" checked /><i></i></span>
+            <span class="muted">参与翻译候选链</span>
+          </label>
+        </label>
+      </div>
+      <footer>
+        <span class="modal-msg" id="modal-msg"></span>
+        <span class="spacer"></span>
+        <button class="ghost" id="m-cancel">取消</button>
+        <button class="primary" id="m-save">验证并保存</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="../../core/translate/languages.js"></script>
+  <script src="../../shared/accelerator.js"></script>
+  <script src="../shared/theme.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

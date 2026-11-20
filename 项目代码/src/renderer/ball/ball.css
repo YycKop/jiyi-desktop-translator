@@ -1,0 +1,166 @@
+/* 悬浮球样式（F-16 / D3.3）
+ *
+ * 第十六轮：球面换成应用图标本身，去掉外发光/投影（44px 透明窗上投影会在边缘露黑边）。
+ * 第二十五轮：窗口固定、不再 resize，气泡用 opacity/transform 浮现（消除黑框闪动）。
+ * 第二十六轮：气泡改成**圆形小图标**，沿球心等半径绕球排开（iOS 辅助触控观感）。
+ *   - 每个气泡 38px，深色玻璃底 + 细白边 + 白色线性图标；
+ *   - 位置由主进程下发的 layout 直接写成 left/top（两边共用同一套极坐标，不会错位）；
+ *   - 展开时按 --i 依次错开 22ms 弹出，收起时统一缩回球心。
+ */
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+}
+
+.ball-wrap {
+  position: fixed;
+  inset: 0;
+}
+
+/* 球：位置由 JS 按 layout.cx/cy 写入（40px 视觉尺寸，窗口里留 2px 给描边） */
+#ball {
+  position: absolute;
+  left: 78px;
+  top: 158px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+#ball-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  /* 图标外圈自带一圈压暗的边缘像素，直接裁成圆形时看起来就是「球旁边一圈黑边」。
+     放大一点点让这圈边缘落到圆外，圆内就只剩图标的干净底色。 */
+  transform: scale(1.08);
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* 悬停只放大 + 轻微提亮，不加投影（投影就是用户要去掉的黑边） */
+#ball:hover {
+  transform: scale(1.06);
+  filter: brightness(1.06) saturate(1.05);
+}
+
+/* 定时轮询时用主题色描边呼吸，代替原先的黑色投影脉冲 */
+#ball.busy { animation: ball-pulse 1.1s ease-in-out infinite; }
+
+@keyframes ball-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 181, 68, 0.55); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 181, 68, 0); }
+}
+
+/* ---------------------------------------------------------------- 圆形气泡 */
+
+.ball-bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 130ms ease;
+}
+
+.ball-wrap[data-open="true"] .ball-bubbles { opacity: 1; }
+
+.bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  /* 透明窗口上不用 backdrop-filter（圆角处会糊出暗晕），用高不透明度实底 */
+  background: rgba(20, 24, 33, 0.93);
+  color: #e9edf5;
+  cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  /* 从球心方向轻微错开一点再放大，像"从球里冒出来" */
+  transform: scale(0.55);
+  transition:
+    transform 190ms cubic-bezier(0.2, 0.9, 0.3, 1.25) calc(var(--i, 0) * 22ms),
+    opacity 140ms ease calc(var(--i, 0) * 22ms),
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.ball-wrap[data-open="true"] .bubble {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.bubble svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.bubble:hover {
+  background: rgba(76, 141, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.42);
+  color: #fff;
+  transform: scale(1.12);
+}
+
+.bubble.danger { color: #ffb0b0; }
+.bubble.danger:hover {
+  background: rgba(226, 74, 74, 0.94);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+
+/* 悬停时在气泡外侧补一个文字标签，解决"只有图标不知道是什么"的问题。
+   标签固定往远离球的一侧偏移，由 data-side 决定方向。 */
+.bubble::after {
+  content: attr(data-label);
+  position: absolute;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgba(20, 24, 33, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #eef2f8;
+  font: 600 11px/1.1 "Microsoft YaHei", "Segoe UI", sans-serif;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.94);
+  transition: opacity 120ms ease 90ms, transform 120ms ease 90ms;
+  pointer-events: none;
+}
+
+.bubble:hover::after { opacity: 1; transform: translateY(-50%) scale(1); }
+
+/* 标签放在气泡背离球的一侧：球在左就往右挂，球在右就往左挂 */
+.ball-wrap[data-side="right"] .bubble::after {
+  left: calc(100% + 7px);
+  top: 50%;
+}
+.ball-wrap[data-side="left"] .bubble::after,
+.ball-wrap[data-side="center"] .bubble::after {
+  right: calc(100% + 7px);
+  top: 50%;
+}

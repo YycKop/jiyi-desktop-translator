@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'" />
+  <title>框选区域</title>
+  <link rel="stylesheet" href="../shared/base.css" />
+  <link rel="stylesheet" href="overlay.css" />
+</head>
+<body class="transparent">
+  <!-- 选区：用超大 box-shadow 把选区外区域压暗（无需额外遮罩层） -->
+  <div id="sel"></div>
+  <div id="size" hidden></div>
+  <div id="hint">拖动鼠标框选要翻译的区域 · Esc / 右键 取消</div>
+  <script src="app.js"></script>
+</body>
+</html>

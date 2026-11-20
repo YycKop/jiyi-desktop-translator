@@ -1,0 +1,127 @@
+=== FILE: 桌面翻译助手技术文档（修正版）.docx ===
+# 桌面翻译助手技术文档（修正版）
+**版本**：v2.2
+**编制依据**：需求书 v2 + M1–M5 详细细节书 v2.1 + 开发环境配置清单 v1.0 + 限制书 v1.0 + 修订条款 REV-001 + 技术评审修正
+**修正说明**：本版针对技术评审发现的 6 处问题进行了修正，修正内容在对应章节以 **【修正】** 标注。
+## 修正摘要
+| 序号 | 修正位置 | 原内容 | 修正后 |
+|------|---------|--------|--------|
+| 1 | M1-T5 | Q4_K_M 或官方推荐量化版本 | **1.25-bit GGUF（440MB）** 或 2-bit（574MB） |
+| 2 | M1-T5 + 限制书 | llama-server 启动参数无 CORS 限制 | 追加 `--cors-origins localhost` |
+| 3 | M3-T2 | 前端 `mouseenter/mouseleave` 切换穿透 | **光标位置轮询 + elementFromPoint 命中检测** |
+| 4 | TRAP-01 | 仅描述问题，无实现参考 | 补充 CodeWalkers 参考实现 |
+| 5 | M5-T1 风险 | 未标注“不抢焦点”的实现风险 | 明确标注 Windows API 调优风险 |
+| 6 | 开发环境清单 | AGENTS.md 加载机制描述不完整 | 补充官方加载顺序与预算说明 |
+## M1：桌面壳 + DSH 编排链路 + 离线翻译跑通
+### M1.1 目标
+在不配置任何联网 API 的前提下，完成“框选区域 → 截图 → OCR → 离线混元翻译 → 控制台/日志输出译文”的全链路验证。同时建立 DSH 插件与宿主壳之间的 IPC 契约。
+### M1.2 交付物（同原文档，略）
+### M1.3 技术决策与依据
+**【修正 1】离线翻译模型：HY-MT1.5-1.8B 极致量化版**
+腾讯混元已发布 HY-MT1.5-1.8B 的极致量化版本，优先选用 **1.25-bit GGUF（440MB）**，备选 **2-bit GGUF（574MB）**。两者均支持 33 种语言，官方声称“接近无损的翻译质量”，且 1.25-bit 版本通过 Sherry 三值量化框架将原始 3.3GB FP16 模型压缩至 440MB。选择理由：内存占用远低于原 Q4_K_M（约 1.1GB），N-02-R1 的 1.5GB 指标可轻松达标；安装包体积更小。
+**注意**：1.25-bit GGUF 依赖自定义 STQ kernel，需使用 llama.cpp 的 PR #22836 分支编译，而非主干版本。M1 阶段若 PR 分支不稳定，回退至 2-bit 版本（使用标准 llama.cpp 即可）。
+**宿主壳选型、OCR 引擎、DSH 插件形态**：同原文档。
+### M1.4 详细开发任务
+**任务 M1-T1 至 M1-T4**：同原文档。
+**任务 M1-T5：本地混元服务启动与验证（修正）**
+- 下载量化模型：
+- 首选：`Hy-MT1.5-1.8B-1.25bit-GGUF`（440MB），需编译 llama.cpp PR #22836 分支。
+- 备选：`Hy-MT1.5-1.8B-2bit-GGUF`（574MB），标准 llama.cpp 主干支持。
+- 启动命令（**【修正 2】** 追加 CORS 限制）：
+```
+llama-server -m hy-mt-1.5-1.8b-1.25bit.gguf \
+--port 8081 --host 127.0.0.1 -c 4096 \
+--cors-origins localhost
+```
+- **CORS 限制依据**：llama.cpp 的 server 默认将 `Access-Control-Allow-Origin` 反射为请求的 Origin，且无 API Key 认证时，本地浏览器中的恶意页面可发起 CSRF 式请求访问本地翻译服务。`--cors-origins localhost` 将允许来源限定为本机，阻止外部网页调用。
+- 验证：`curl http://127.0.0.1:8081/v1/chat/completions` 返回正常；用 `Origin: https://evil.example` 测试应返回 403。
+- 宿主壳负责在启动时拉起 llama-server 子进程，退出时终止。
+**任务 M1-T6**：同原文档。
+### M1.5 M1 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| DSH Developer Preview API 变更 | 锁定 dsh 包版本；插件与 DSH 接口之间加薄适配层 |
+| 1.25-bit 模型依赖 PR 分支，稳定性未知 | M1 先用 2-bit 版本跑通链路；1.25-bit 作为 M1 后期或 M2 的优化项 |
+| Tauri IPC 截图坐标与显示器缩放不匹配 | `@open-snapora/tauri` 已处理 HiDPI 坐标映射 |
+## M2：框选截图 + OCR + 浮窗静态翻译显示
+（同原文档，无修正）
+## M3：定时轮询 + 点击穿透 + 收起/展开
+### M3.3 技术决策（修正）
+**【修正 3】点击穿透方案：光标轮询 + hit-test**
+原方案“前端监听 `mouseenter/mouseleave` 切换穿透”存在逻辑缺陷：**穿透状态下，前端根本收不到 `mousemove` 事件**，`mouseenter` 永远不会触发。正确实现参考 CodeWalkers 项目：
+1. 浮窗默认设置 `set_ignore_cursor_events(true)`，整窗穿透。
+2. 前端启动轮询循环（每 120ms），调用 Rust IPC `get_mouse_pos` 获取光标在窗口内的逻辑坐标。
+3. 用 `document.elementFromPoint(x, y)` 检测该位置最顶层的 DOM 元素。
+4. 若元素为交互控件（收起按钮、滚动区域，通过 class 或 `z-index` 判定），调用 IPC `set_ignore_cursor_events(false)`；否则恢复 `true`。
+5. Rust 侧 `get_mouse_pos` 负责将物理屏幕坐标转换为逻辑窗口坐标，处理多显示器与 HiDPI 缩放。
+**`tauri-plugin-polygon` 不适用**：该插件仅适用于全屏透明窗口的多边形热区，你的浮窗是局部窗口，`set_ignore_cursor_events` 轮询方案是正确方向。
+### M3.4 详细开发任务
+**任务 M3-T2：点击穿透实现（修正）**
+- Rust 侧实现两个 IPC 命令：
+- `set_ignore_cursor_events(ignore: bool)`：调用 Tauri 窗口 API 切换穿透状态。
+- `get_mouse_pos() -> {x: f64, y: f64}`：获取光标相对于浮窗的逻辑坐标。
+- 前端轮询逻辑（伪代码）：
+```js
+setInterval(async () => {
+const pos = await invoke('get_mouse_pos');
+const el = document.elementFromPoint(pos.x, pos.y);
+const isInteractive = el?.closest('.interactive');
+await invoke('set_ignore_cursor_events', { ignore: !isInteractive });
+}, 120);
+```
+- **DevTools 保护**（**【修正 4】** 参考 CodeWalkers）：Rust 侧实现 `is_devtools_open()` 命令。若 DevTools 打开，强制 `ignore = false`，防止开发者被锁在穿透窗口外无法操作 DevTools。
+- 验收：浮窗显示时，点击透明区域穿透至下层应用；悬停收起按钮时可点击；打开 DevTools 时穿透自动禁用。
+**任务 M3-T1、M3-T3、M3-T4**：同原文档。
+### M3.5 M3 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| 点击穿透与滚动文本区域冲突 | 滚动区域标记为 `.interactive`，轮询命中时恢复接收；移出后恢复穿透 |
+| 定时轮询导致 CPU 占用过高 | OCR 和翻译串行执行，间隔不少于 1 秒；防重入机制 |
+| 光标轮询（120ms）本身有轻微 CPU 开销 | 轮询仅在浮窗可见时运行；浮窗隐藏或收起时暂停 |
+## M4：用户 AI API 配置面板 + 多 API 故障转移 + 自动降级
+（同原文档，无修正）
+## M5：游戏/视频场景实测调优 + 安装包封装与模型分发
+### M5.4 详细开发任务（修正）
+**任务 M5-T1：游戏场景测试与修复（修正风险标注）**
+**【修正 5】** 新增风险标注：
+**“不抢焦点”的实现风险**：Tauri 官方讨论区有明确案例：使用 `always_on_top + transparent + skip_taskbar` 后，热键触发时游戏**仍然会失去焦点**，即使尝试 `WS_EX_NOACTIVATE` + `SW_SHOWNOACTIVATE` 也未必解决。这意味着“浮窗显示但游戏不失去焦点”可能需要大量 Windows API 调优（`SetWindowLong` + `SetWindowPos` 组合），且**存在无法完全解决的风险**。
+**缓解措施**：
+- M5 阶段将此作为**优先调优项**，但不在验收标准中设为硬性门槛。
+- 若无法实现“完全不抢焦点”，降级方案：浮窗显示后自动将焦点归还给游戏窗口（`SetForegroundWindow` 到游戏 HWND）。
+- 用户文档中明确说明：部分游戏场景下浮窗显示可能导致短暂焦点切换，建议将游戏设为“无边框窗口化”以降低影响。
+**任务 M5-T1 其他检查项**：同原文档。
+**任务 M5-T2 至 M5-T4**：同原文档。
+### M5.5 M5 风险与缓解（修正）
+| 风险 | 缓解措施 |
+|------|----------|
+| 部分游戏独占全屏无法显示浮窗 | 引导用户设为“无边框窗口化” |
+| 模型下载源被墙或速度慢 | 国内镜像 + 断点续传 |
+| macOS 签名与公证缺失 | V1 内部测试右键打开；正式发布前申请证书 |
+| **“不抢焦点”在游戏场景可能无法完全实现** | 优先调优；降级方案为自动归还焦点；用户文档预期管理 |
+## 开发环境配置清单（修正版补充）
+### 第 3 节 AGENTS.md 项目上下文锚点（**【修正 6】** 补充加载机制）
+**官方加载机制**：DSH 的 `@deepseek-ai/dsh-agent-instructions` 插件默认已由 `dsh-base` 启用，无需额外安装。加载顺序为：
+1. `$DSH_HOME/AGENTS.md`（用户全局，默认 `~/.dsh/AGENTS.md`）
+2. 项目根目录的 base 候选文件（`AGENTS.md`、`CLAUDE.md`）
+3. 项目根目录的 local overlay（`AGENTS.local.md`、`CLAUDE.local.md`）
+4. 从项目根到 Session 工作目录的逐层嵌套指令
+**预算**：渲染预算 65,536 字节，源文件上限 1 MiB。你的项目 `AGENTS.md` 应控制在预算内，不要放入大段代码或文档全文。
+**根标记**：若向上查找时未找到配置的根标记（默认 `.git`），Session 的当前工作目录本身成为项目根。确保项目根目录有 `.git` 目录，否则 `AGENTS.md` 可能不会按预期加载。
+### 第 9 节 TRAP-01 实现参考（**【修正 4】** 补充）
+**TRAP-01 参考实现**：CodeWalkers 项目已在 Rust 侧实现 `is_devtools_open` 命令，DevTools 打开时强制禁用穿透，关闭后恢复用户设置。前端轮询逻辑中也包含对 DevTools 状态的检查。可直接参考其 `src-tauri/src/lib.rs` 中的 `is_devtools_open` 与 `set_ignore_cursor_events` 实现。
+## 限制书补充条款（**【修正 2】** 追加）
+**附于**：限制书第 5 节“屏幕采集与 OCR 限制”之后，或第 6 节“DSH 插件与供应链限制”之后。
+### SEC-CORS-01（新增）本地 llama-server 的 CORS 访问限制
+**限制内容**：宿主壳启动 llama-server 时，必须通过 `--cors-origins localhost` 参数将 CORS 允许来源限定为本机回环地址。禁止以默认配置（反射任意 Origin）运行 llama-server。
+**验证方式**：启动后，用携带 `Origin: https://evil.example` 的请求测试，应返回 403 或拒绝响应。
+**依据**：llama.cpp server 在未限制 CORS 且无 API Key 时，本地浏览器中的恶意页面可发起 CSRF 式请求访问本地模型服务。本项目虽仅在 localhost 监听，但浏览器中的任意网页均可向 localhost 发起请求，需通过 CORS 限制阻断。
+## 附录：修正项对照表
+| 修正编号 | 文档 | 原位置 | 修正内容 |
+|----------|------|--------|----------|
+| 1 | M1 细节书 | M1-T5 | 量化版本改为 1.25-bit/2-bit |
+| 2 | M1 细节书 + 限制书 | M1-T5 命令 + 新增 SEC-CORS-01 | 追加 `--cors-origins localhost` |
+| 3 | M3 细节书 | M3-T2 | 穿透方案改为光标轮询 + elementFromPoint |
+| 4 | REV-001 + 环境清单 | TRAP-01 | 补充 CodeWalkers 参考实现 |
+| 5 | M5 细节书 | M5-T1 + M5.5 | 标注“不抢焦点”实现风险与降级方案 |
+| 6 | 环境清单 | 第 3 节 | 补充 AGENTS.md 官方加载顺序与预算 |
+**生效方式**：本修正版技术文档与原始文档（需求书 v2、限制书 v1.0、开发环境配置清单 v1.0、M1–M5 细节书 v2.1、REV-001）一并使用。修正内容以本文件为准，原文档中与修正内容冲突的条款自动失效。M1 启动前由开发负责人确认全部 6 项修正已纳入开发执行依据。

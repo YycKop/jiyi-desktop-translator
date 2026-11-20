@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'" />
+  <title>欢迎使用即译</title>
+  <link rel="stylesheet" href="../shared/base.css" />
+  <link rel="stylesheet" href="onboarding.css" />
+</head>
+<body class="solid">
+  <header class="titlebar drag-region">
+    <img class="app-icon" src="../../../assets/app.png" alt="" />
+    <img class="brand-wordmark only-dark" src="../../../assets/wordmark-light.png" alt="即译" />
+    <img class="brand-wordmark only-light" src="../../../assets/wordmark-dark.png" alt="" aria-hidden="true" />
+    <span class="brand-tagline">即时翻译，沟通无界</span>
+    <span class="spacer"></span>
+    <button class="icon no-drag" id="btn-close" title="关闭">×</button>
+  </header>
+
+  <main class="steps">
+    <!-- 步骤 1：目标语言 -->
+    <section class="step active" data-step="1">
+      <h1>把屏幕上的文字，翻译成母语</h1>
+      <p class="lead">框选任意区域，助手会识别其中的文字并翻译到浮窗上。截图只发生在这个区域内，识别与离线翻译全部在本机完成。</p>
+      <label class="field">
+        <span>我想把内容翻译成</span>
+        <select id="target-lang"></select>
+      </label>
+      <ul class="tips">
+        <li>默认热键 <kbd id="hk-select">Ctrl+Shift+T</kbd> 框选区域，热键可在设置中修改。</li>
+        <li>浮窗默认置顶、半透明，不抢焦点，可随时收起为悬浮球。</li>
+        <li>支持联网 API 与本地离线模型两种方式，可自动降级。</li>
+      </ul>
+    </section>
+
+    <!-- 步骤 2：离线模型 -->
+    <section class="step" data-step="2">
+      <h1>离线模型（可选）</h1>
+      <p class="lead">
+        离线翻译使用 llama.cpp + 混元 HY-MT1.5-1.8B 的 GGUF 量化模型（推荐 2-bit ≈ 574MB）。
+        模型文件较大，未随安装包分发，需要单独获取后在此选择；也可以先跳过，只使用联网 API。
+      </p>
+      <div class="card model-card">
+        <div class="row"><span class="muted">llama-server</span><span class="spacer"></span><span class="mono" id="binary-state">检测中…</span></div>
+        <div class="row"><span class="muted">模型文件</span><span class="spacer"></span><span class="mono" id="model-state">未选择</span></div>
+      </div>
+      <div class="row mt-14">
+        <button id="btn-pick-model">选择 GGUF 模型文件…</button>
+        <button id="btn-skip-model" class="ghost">暂时跳过</button>
+      </div>
+      <p class="hint" id="model-hint">跳过之后仍然可以随时在「设置 → 离线模型」中补配。</p>
+    </section>
+
+    <!-- 步骤 3：联网 API -->
+    <section class="step" data-step="3">
+      <h1>联网翻译接口（可选）</h1>
+      <p class="lead">
+        填入任意 OpenAI 兼容接口即可获得更好的译文质量，支持 DeepSeek / OpenAI / Claude / Gemini 等预设。
+        可以配置多个接口组成「主用 → 备用」链，前一个失败或超时会自动切到下一个。
+      </p>
+      <div class="card api-card-info" id="api-summary">尚未配置接口</div>
+      <div class="row mt-14">
+        <button id="btn-open-api">现在配置接口</button>
+        <button id="btn-skip-api" class="ghost">稍后再说</button>
+      </div>
+      <p class="hint">密钥使用系统机器指纹派生的 AES-256-GCM 加密后保存在本机，界面只显示掩码。</p>
+    </section>
+
+    <!-- 步骤 4：完成 -->
+    <section class="step" data-step="4">
+      <h1>准备就绪</h1>
+      <p class="lead">按下热键框选一段文字即可开始。浮窗标题栏的 ⚙ 按钮随时可以打开设置。</p>
+      <ul class="tips">
+        <li>打开设置：点浮窗标题栏的 ⚙；再次双击程序图标；或右键托盘图标 →「设置」。</li>
+        <li>托盘图标可能被 Windows 收进右下角 ^ 溢出区，可拖到常显区域。</li>
+        <li>游戏/视频建议使用「无边框窗口化」，可获得更好的置顶与取词效果。</li>
+        <li>若目标程序以管理员权限运行，请以相同权限启动本助手，否则可能取不到词。</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="dots" id="dots">
+      <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </div>
+    <span class="spacer"></span>
+    <button class="ghost" id="btn-back">上一步</button>
+    <button class="primary" id="btn-next">下一步</button>
+  </footer>
+
+  <script src="../../core/translate/languages.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

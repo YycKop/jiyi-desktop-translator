@@ -1,0 +1,55 @@
+/* 框选遮罩样式（F-09 / M2-T1）
+   整屏变暗，选区透空并高亮描边。 */
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: crosshair;
+  background: transparent;
+}
+
+#sel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border: 1px solid rgba(110, 168, 255, 0.95);
+  background: rgba(76, 141, 255, 0.06);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.42), 0 0 12px rgba(76, 141, 255, 0.55);
+  pointer-events: none;
+}
+
+#sel.hidden { display: none; }
+
+#size {
+  position: fixed;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: #dce7ff;
+  background: rgba(18, 21, 28, 0.92);
+  border: 1px solid rgba(110, 168, 255, 0.5);
+  border-radius: 6px;
+  padding: 3px 7px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+}
+#size[hidden] { display: none; }
+
+#hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: #e8ecf3;
+  background: rgba(18, 21, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 7px 16px;
+  pointer-events: none;
+  z-index: 11;
+  letter-spacing: 0.2px;
+}

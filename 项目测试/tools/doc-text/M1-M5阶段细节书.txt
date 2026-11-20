@@ -1,0 +1,326 @@
+=== FILE: M1-M5阶段细节书.docx ===
+# 桌面翻译助手 M1–M5 详细细节书
+**版本**：v2.1（对应需求书 v2）
+**编制依据**：需求书 v2 + M1/M4 拆解讨论结论 + 搜索材料核实
+**适用对象**：开发团队、测试、项目管理
+## M1：桌面壳 + DSH 编排链路 + 离线翻译跑通
+### M1.1 目标
+在不配置任何联网 API 的前提下，完成“框选区域 → 截图 → OCR → 离线混元翻译 → 控制台/日志输出译文”的全链路验证。同时建立 DSH 插件与宿主壳之间的 IPC 契约，为后续浮窗和联网翻译提供稳定接口。
+### M1.2 交付物
+| 编号 | 交付物 | 验收标准 |
+|------|--------|----------|
+| D1.1 | 宿主壳项目骨架（Tauri 2 优先） | 可编译出 Windows `.exe` 开发版，启动后托盘图标可见 |
+| D1.2 | DSH 后台运行环境 | DSH 以子进程或内嵌方式启动，插件目录可加载自定义插件 |
+| D1.3 | OCR 插件（`dsh-plugin-screen-ocr`） | 接收矩形坐标，返回识别文本，中英文印刷体准确率 ≥95% |
+| D1.4 | 翻译插件（`dsh-plugin-translate`）离线分支 | 调用本地 llama.cpp 混元服务，返回中文译文 |
+| D1.5 | 本地混元推理服务启动脚本 | `llama-server` 可加载 GGUF 模型，暴露 OpenAI 兼容接口 |
+| D1.6 | 端到端联调记录 | 框选 200×100 区域，OCR→离线翻译全链路 ≤3 秒 |
+### M1.3 技术决策与依据
+**宿主壳选型：Tauri 2**。需求书 v2 中已确定为“Tauri、WebView2、Electron 择一，V1 优先评估 Tauri”。Tauri 2 具备透明窗口、置顶、托盘能力，且社区有成熟的屏幕采集插件（`@open-snapora/tauri` 提供原生 Rust 截屏，支持多显示器与 HiDPI）。相比 Electron，Tauri 产物体积更小，符合“独立软件”定位。
+**OCR 引擎：RapidOCR 优先，Tesseract 兜底**。搜索材料显示，RapidOCR 基于 PaddleOCR，中文/英文/数字印刷体识别准确率均 ≥98%，且无需额外训练数据；Tesseract 默认配置下中英文约 95%，中文需要额外语言包配置。M1 阶段以 RapidOCR 为主引擎，Tesseract 作为可选回退，降低首次部署复杂度。
+**离线翻译模型：HY-MT1.5-1.8B GGUF 量化版**。官方数据：量化后仅需 1GB 内存，支持 33 语种互译，50 tokens 平均耗时 0.18 秒，效果超越多数商用翻译 API。llama.cpp 可直接加载 GGUF，暴露 OpenAI 兼容 `/v1/chat/completions` 接口，翻译插件无需感知模型细节。
+**DSH 插件形态**：根据 DSH 扩展开发规范，本地能力应注册为 **Tool**，使用 `ctx.tools.register(defineTool({...}))`，输入参数需定义 schema，输出为 Canonical JSON，且 `execute` 必须响应 `exec.signal` 以支持取消。M1 的 OCR 和翻译均以 Tool 形式注册。
+### M1.4 详细开发任务
+**任务 M1-T1：宿主壳骨架搭建**
+- 使用 `create-tauri-app` 初始化 Tauri 2 项目，前端框架不限（建议 Solid 或 React）。
+- 配置 `tauri.conf.json`：启用 `tray-icon`、`macos-private-api`（macOS 透明窗口需要）。
+- 实现托盘菜单：显示/隐藏主窗口、退出。
+- 实现基础窗口：一个隐藏的配置窗口（M4 使用）和一个待创建的浮窗占位。
+- 验收：`cargo tauri dev` 启动后托盘出现，点击托盘“退出”进程结束。
+**任务 M1-T2：DSH 运行环境集成**
+- 将 DSH 作为 Tauri 的 sidecar 或通过 Node.js 子进程启动，传入插件目录路径。
+- 确认 DSH 版本锁定（Developer Preview 阶段 API 可能变更），在 `package.json` 中固定 `@deepseek-ai/dsh-*` 的完整版本号。
+- 验收：DSH 启动日志输出正常，插件目录中的测试插件被加载。
+**任务 M1-T3：OCR 插件实现**
+- 目录结构：
+```
+dsh-plugin-screen-ocr/
+├── package.json
+├── lib/index.js      # 编译产物
+└── src/index.ts
+```
+- Tool 定义（依据 DSH Tool 规范）：
+```ts
+ctx.tools.register(defineTool({
+name: 'screen_ocr',
+description: '对指定屏幕区域截图并识别文字',
+parameters: {
+x: { type: 'number', required: true },
+y: { type: 'number', required: true },
+width: { type: 'number', required: true },
+height: { type: 'number', required: true }
+},
+output: { schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+async execute(args, exec) {
+// 1. 通过 IPC 请求宿主壳截图
+const pngBase64 = await callHost('capture_region', args, exec.signal);
+// 2. RapidOCR 识别
+const text = await rapidOcr(pngBase64);
+return { text };
+}
+}));
+```
+- 截图委托：插件不直接操作屏幕，通过 Tauri IPC `invoke('capture_region', {x,y,width,height})` 由 Rust 侧执行截屏并返回 base64 PNG。`@open-snapora/tauri` 的 capture 能力可作为参考实现。
+- 验收：手动调用 Tool，传入固定区域，返回正确文本。
+**任务 M1-T4：翻译插件离线分支实现**
+- Tool 定义：
+```ts
+name: 'translate_text',
+parameters: { text: string, targetLang: string, sourceLang?: string },
+execute: async (args, exec) => {
+// M1 仅实现离线分支
+const result = await callLocalHunyuan(args.text, args.targetLang, exec.signal);
+return { text: result, engine: '离线模式' };
+}
+```
+- 本地调用：向 `http://127.0.0.1:8081/v1/chat/completions` 发送 POST，请求体兼容 OpenAI 格式，`model` 字段填 `hy-mt`，`messages` 包含 system prompt：“You are a translator. Translate the user text to {targetLang}. Output only the translated text, no explanation.”
+- 超时：单次请求 10 秒（离线模型首次推理可能较慢，后续 3 秒内）。
+- 验收：输入 “Hello world”，targetLang 为 “zh”，返回 “你好世界”。
+**任务 M1-T5：本地混元服务启动与验证**
+- 下载 HY-MT1.5-1.8B 的 GGUF 量化文件（建议 Q4_K_M 或官方推荐量化版本）。
+- 使用 llama.cpp 的 `llama-server` 启动：
+```
+llama-server -m hy-mt-1.5-1.8b-q4.gguf --port 8081 --host 127.0.0.1 -c 4096
+```
+- 验证 OpenAI 兼容接口：`curl http://127.0.0.1:8081/v1/chat/completions` 返回正常。
+- 宿主壳负责在启动时拉起 llama-server 子进程，退出时终止。
+- 验收：llama-server 启动后，翻译插件可成功调用并返回译文。
+**任务 M1-T6：端到端联调**
+- 在宿主壳中实现一个临时的“测试按钮”（或开发命令行触发），模拟框选区域 `{x:100, y:100, width:200, height:100}`，依次调用 OCR Tool 和翻译 Tool，将结果打印到日志。
+- 验收：截取一个包含英文文本的窗口区域，日志输出中文译文，总耗时 ≤3 秒。
+### M1.5 M1 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| DSH Developer Preview API 变更 | 锁定 dsh 包版本；插件与 DSH 接口之间加薄适配层 |
+| 混元 GGUF 在目标机器内存不足 | M1 只验证功能，量化版本选 Q4 以下；若内存超限，回退到更低位宽 |
+| Tauri IPC 截图坐标与显示器缩放不匹配 | `@open-snapora/tauri` 已处理 HiDPI 坐标映射，直接复用 |
+## M2：框选截图 + OCR + 浮窗静态翻译显示
+### M2.1 目标
+用户可通过快捷键进入框选模式，拖拽绘制矩形区域；软件对该区域执行 OCR 和离线翻译，并将译文显示在透明浮窗中。浮窗仅展示，不含点击穿透和定时刷新。
+### M2.2 交付物
+| 编号 | 交付物 | 验收标准 |
+|------|--------|----------|
+| D2.1 | 全屏框选覆盖层 | 按下快捷键后全屏半透明遮罩出现，鼠标拖拽绘制矩形，松开后返回坐标 |
+| D2.2 | 浮窗窗口 | 透明、无边框、始终置顶的独立窗口，可显示文本 |
+| D2.3 | 翻译触发链路 | 框选结束 → 调用 M1 的 OCR+翻译 → 浮窗显示译文 |
+| D2.4 | 区域坐标持久化 | 框选坐标保存到本地配置，下次启动可复用 |
+### M2.3 技术决策
+**框选覆盖层实现**：创建一个全屏、透明背景的 Tauri 窗口，使用 Canvas 或 DOM 绘制选择矩形。参考 `tauri-plugin-polygon` 的思路：全屏透明窗口覆盖所有显示器，接收鼠标事件，绘制完成后通过 IPC 回传矩形坐标。该插件同时支持 Windows/Linux/macOS。
+**浮窗窗口属性**（M2 阶段先不加点击穿透）：
+- `transparent: true`
+- `decorations: false`（无标题栏）
+- `alwaysOnTop: true`
+- `skipTaskbar: true`
+- 初始位置：框选区域右下方偏移 10px，避免遮挡原文。
+### M2.4 详细开发任务
+**任务 M2-T1：全屏框选覆盖层**
+- 创建 Tauri 窗口 `selection-overlay`，属性：全屏、透明、`alwaysOnTop`、`focusable: true`（框选时需要焦点）。
+- 前端使用 Canvas 或 CSS 绘制半透明遮罩，鼠标 `mousedown` 记录起点，`mousemove` 绘制矩形，`mouseup` 计算终点。
+- 坐标换算：使用 `window.screen.width` 和窗口尺寸将逻辑坐标映射到物理屏幕坐标。
+- 松手后通过 IPC `invoke('set_selection_region', {x,y,width,height})` 保存坐标，关闭覆盖层。
+- 验收：快捷键触发后覆盖层出现，拖拽画出矩形，控制台输出正确坐标。
+**任务 M2-T2：浮窗窗口创建**
+- 在 Tauri 中创建窗口 `translation-hud`，属性：
+```
+transparent: true, decorations: false, alwaysOnTop: true, skipTaskbar: true, focusable: false
+```
+- 初始隐藏，收到翻译结果后显示。
+- 前端页面：一个半透明深色背景的 `<div>`，白色文字，最大宽度 400px，支持自动换行，字体大小可配置（默认 14px）。
+- 验收：手动调用 `show_translation` IPC 命令，浮窗出现在指定位置并显示文本。
+**任务 M2-T3：翻译触发链路对接**
+- 框选结束后，宿主壳调用 DSH 的 OCR Tool（传入保存的坐标），拿到文本后调用翻译 Tool（目标语言从设置读取，M2 先硬编码为中文）。
+- 翻译结果通过 IPC `invoke('show_translation', { text, engine, x, y })` 推送到浮窗。
+- 浮窗前端监听事件，更新显示内容并调整窗口位置（靠近框选区域但不完全覆盖）。
+- 验收：框选一段英文，浮窗在 3 秒内显示中文译文。
+**任务 M2-T4：坐标持久化**
+- 使用 Tauri 的 `tauri-plugin-store` 保存 `lastSelection: {x, y, width, height}`。
+- 启动时读取，若存在则允许用户通过托盘菜单“翻译上次区域”快速触发，无需重新框选。
+- 验收：框选后重启软件，“翻译上次区域”可用且坐标正确。
+### M2.5 M2 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| 多显示器下框选坐标错误 | 使用 Tauri 的 monitor API 获取各显示器物理坐标，换算时区分显示器 origin |
+| 浮窗位置超出屏幕 | 显示前检查屏幕边界，若右侧空间不足则放在框选区域左侧 |
+## M3：定时轮询 + 点击穿透 + 收起/展开
+### M3.1 目标
+浮窗具备“不占屏幕”的核心交互：点击穿透、可收起为悬浮球、定时自动刷新翻译。这是“看视频/打游戏时不打扰”体验的关键阶段。
+### M3.2 交付物
+| 编号 | 交付物 | 验收标准 |
+|------|--------|----------|
+| D3.1 | 定时轮询引擎 | 按设定间隔（默认 2 秒）自动重复 OCR+翻译，更新浮窗 |
+| D3.2 | 点击穿透 | 浮窗默认穿透，鼠标悬停在交互控件上时恢复接收 |
+| D3.3 | 收起/展开 | 浮窗可收起为小悬浮球，点击恢复 |
+| D3.4 | 模式切换 UI | 托盘菜单中可切换“手动/定时”模式，设置轮询间隔 |
+### M3.3 技术决策
+**点击穿透方案**：Tauri 2 的点击穿透可通过 `tauri-plugin-polygon` 实现：定义哪些区域接收鼠标事件（多边形），其余区域穿透。对于浮窗，将交互控件（收起按钮、滚动区域）注册为接收区域，其余透明区域穿透。或者使用 Tauri 窗口的 `setIgnoreCursorEvents` API，配合前端 `mouseenter/mouseleave` 动态切换。
+**收起形态**：收起后浮窗变为一个 40×40 的圆形悬浮球，半透明，始终置顶，点击后恢复完整浮窗。悬浮球位置可拖动（M3 可选，若成本高则固定右下角）。
+### M3.4 详细开发任务
+**任务 M3-T1：定时轮询引擎**
+- 在宿主壳中实现一个 `TranslationLoop` 类：
+- `start(intervalMs)`：每隔 `intervalMs` 执行一次“OCR → 翻译 → 推送浮窗”。
+- `stop()`：清除定时器。
+- 防重入：上一次执行未完成时跳过本次 tick。
+- 默认间隔 2000ms，可在托盘菜单中设为 1s/2s/5s。
+- 验收：开启定时模式后，框选区域内的文本变化时，浮窗内容在 2–4 秒内更新。
+**任务 M3-T2：点击穿透实现**
+- 浮窗窗口设置 `setIgnoreCursorEvents(true)`（Tauri API），使整个窗口默认穿透。
+- 前端在交互控件（收起按钮、可滚动文本区域）上监听 `mouseenter` → 调用 IPC `set_ignore_cursor_events(false)`；`mouseleave` → 恢复 `true`。
+- 若 Tauri 的 `setIgnoreCursorEvents` 粒度不够，改用 `tauri-plugin-polygon` 注册接收区域。
+- 验收：浮窗显示时，点击浮窗透明区域，下层应用（如记事本）接收到点击；点击收起按钮时，按钮正常响应。
+**任务 M3-T3：收起/展开**
+- 浮窗右上角放置 `—` 按钮，点击后：
+- 隐藏浮窗主窗口。
+- 显示悬浮球窗口（40×40，圆形半透明，始终置顶，可拖动）。
+- 悬浮球点击 → 隐藏悬浮球，恢复浮窗。
+- 验收：收起后屏幕仅剩一个小球，点击小球恢复浮窗，浮窗内容保留。
+**任务 M3-T4：托盘菜单模式切换**
+- 托盘菜单增加：
+- `翻译模式` 子菜单：`手动触发` / `定时刷新`
+- `刷新间隔` 子菜单：`1秒` / `2秒` / `5秒`
+- 选择后立即生效，状态持久化。
+- 验收：切换到手动模式后定时刷新停止；切回定时模式后恢复。
+### M3.5 M3 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| 点击穿透与滚动文本区域冲突 | 滚动区域注册为接收区域，用户悬停时可正常滚动；移出后恢复穿透 |
+| 定时轮询导致 CPU 占用过高 | OCR 和翻译串行执行，间隔不少于 1 秒；若单次执行超过间隔，自动延长下次触发时间 |
+## M4：用户 AI API 配置面板 + 多 API 故障转移 + 自动降级
+### M4.1 目标
+实现用户自选 AI API 的完整配置与调用体系：卡片式配置面板、拖拽排序、测试连接、按优先级串行 fallback、全部失败后自动降级到离线混元。
+### M4.2 交付物
+| 编号 | 交付物 | 验收标准 |
+|------|--------|----------|
+| D4.1 | API 配置面板窗口 | 卡片列表、添加/编辑/删除、拖拽排序、启用开关 |
+| D4.2 | 配置加密存储 | API Key 不以明文落盘 |
+| D4.3 | 测试连接功能 | 每个卡片可独立验证配置有效性 |
+| D4.4 | 翻译插件联网分支 | 按排序尝试前 2 个 API，失败后降级离线 |
+| D4.5 | 浮窗引擎标识 | 浮窗中显示当前译文来自哪个 API 或“离线模式” |
+### M4.3 数据模型
+配置存储使用 Tauri `tauri-plugin-store`，存储结构：
+```json
+{
+"apis": [
+{
+"id": "uuid",
+"name": "DeepSeek",
+"baseUrl": "https://api.deepseek.com/v1",
+"apiKeyEncrypted": "base64...",
+"model": "deepseek-chat",
+"systemPrompt": "You are a translator...",
+"enabled": true,
+"order": 0
+}
+]
+}
+```
+`apiKeyEncrypted` 使用宿主壳的系统密钥链（Windows Credential Manager / macOS Keychain）或本地加密（AES-GCM + 机器绑定密钥）存储。
+### M4.4 详细开发任务
+**任务 M4-T1：配置面板窗口**
+- 创建 Tauri 窗口 `settings-api`，尺寸 600×500，可调整大小。
+- 前端布局：顶部操作栏（标题 + 添加按钮 + 关闭），中部卡片列表，底部提示文字。
+- 卡片渲染：
+- 左侧拖拽手柄 `☰`（使用 HTML5 drag 或 SortableJS）。
+- 中间：名称、模型名、掩码后的 Key（`sk-****abcd`）。
+- 右侧：启用开关、`[测试连接]`、`[编辑]`、`[⋮]`（删除）。
+- 拖拽排序后立即调用 IPC `save_api_order` 持久化 `order` 字段。
+- 验收：可添加、编辑、删除、启用/禁用、拖拽排序 API 卡片，刷新后状态保持。
+**任务 M4-T2：添加/编辑模态框**
+- 预设模板下拉：DeepSeek、OpenAI、Claude、Gemini。选中后自动填充 Base URL 和模型名称默认值。
+- 字段：显示名称、Base URL、API Key（密码输入 + 眼睛切换）、模型名称、系统提示（折叠，默认值）。
+- 按钮 `[验证并添加]`：先用当前配置发短文本翻译测试（如 “Hello” → 目标语言），成功则保存并关闭，失败则显示错误详情且不关闭。
+- 验收：填入无效 Key 时提示错误且不保存；填入有效 Key 时保存成功并出现在列表。
+**任务 M4-T3：测试连接**
+- 每个卡片 `[测试连接]` 调用 IPC `test_api(id)`，宿主壳构造极短翻译请求，超时 8 秒。
+- 结果 toast：成功显示“连接成功（延迟 xxx ms）”，失败显示具体错误（401 / 超时 / 模型不存在）。
+- 验收：测试不修改配置，仅报告结果。
+**任务 M4-T4：翻译插件联网分支实现**
+- 修改 `dsh-plugin-translate` 的 `translate_text` Tool：
+```ts
+async execute(args, exec) {
+const apis = await callHost('get_enabled_apis'); // IPC 获取排序后的启用列表
+for (const api of apis.slice(0, 2)) {
+try {
+const result = await callOpenAICompatible(api, args.text, args.targetLang,
+api.order === 0 ? 5000 : 3000, exec.signal);
+if (result) return { text: result, engine: api.name };
+} catch (e) { /* 继续 */ }
+}
+// 降级离线
+const result = await callLocalHunyuan(args.text, args.targetLang, exec.signal);
+return { text: result, engine: '离线模式' };
+}
+```
+- `callOpenAICompatible`：POST `{baseUrl}/chat/completions`，headers 含 `Authorization: Bearer {apiKey}`，请求体 OpenAI 格式。
+- 验收：配置 DeepSeek 后，翻译优先走 DeepSeek；删除 Key 或断网时，自动返回“离线模式”。
+**任务 M4-T5：浮窗引擎标识显示**
+- 浮窗底部显示一行小字：`引擎：DeepSeek` 或 `引擎：离线模式`，字体 10px，半透明。
+- 每次更新译文时同步更新标识。
+- 验收：使用 DeepSeek 时显示 `引擎：DeepSeek`，降级后显示 `引擎：离线模式`。
+### M4.5 M4 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| 用户配置多个 API 但全部失效 | 串行尝试最多 2 个，每个超时 5s/3s，最坏 8s 后降级，用户可感知但不至于等待过久 |
+| API Key 加密方案在 Windows/macOS 不一致 | 优先使用系统密钥链；若实现复杂，V1 使用本地 AES 加密 + 机器标识派生密钥，明确告知用户“本机加密存储” |
+## M5：游戏/视频场景实测调优 + 安装包封装与模型分发
+### M5.1 目标
+在真实游戏和视频场景中验证“不打扰”体验，修复兼容性问题；产出可分发的安装包，确定混元模型的随包/下载策略。
+### M5.2 交付物
+| 编号 | 交付物 | 验收标准 |
+|------|--------|----------|
+| D5.1 | 游戏场景测试报告 | 至少 2 款无边框窗口化游戏下浮窗正常显示、点击穿透生效 |
+| D5.2 | 视频场景测试报告 | 全屏视频播放时浮窗置顶正常，字幕区域翻译可用 |
+| D5.3 | Windows 安装包（`.msi` 或 `.exe`） | 双击安装，启动后托盘出现，首次运行引导配置 |
+| D5.4 | macOS 安装包（`.dmg`） | 同上（若目标包含 macOS） |
+| D5.5 | 模型分发策略文档 | 明确模型随包 vs 首次启动下载的决策及实现 |
+### M5.3 技术决策
+**模型分发策略**：建议**首次启动时下载**，而非随包分发。理由：HY-MT1.5-1.8B 即使量化后也有数百 MB 到 1GB+，随包会导致安装包过大。首次启动时检测本地是否已有模型，若无则从官方 HuggingFace 或镜像下载，显示进度条。提供“跳过”选项（跳过则仅使用联网 API，若无 API 配置则提示配置）。
+**安装包制作**：Tauri 2 内置 `tauri build` 可产出 `.msi`（Windows）和 `.dmg`（macOS）。需配置签名证书（V1 可先用未签名包内部测试）。
+### M5.4 详细开发任务
+**任务 M5-T1：游戏场景测试与修复**
+- 测试环境：Windows 10/11，至少 2 款支持“无边框窗口化”的游戏（如《原神》窗口模式、《CS2》窗口全屏）。
+- 检查项：
+- 浮窗是否置顶显示在游戏画面上。
+- 点击穿透是否生效（点击浮窗区域，游戏是否收到输入）。
+- 定时轮询是否导致游戏帧率下降（用 Afterburner 或游戏内帧率显示对比）。
+- 常见问题修复：
+- 若浮窗被游戏遮挡：检查 Tauri 窗口的 `alwaysOnTop` 在游戏全屏优化下的表现，必要时使用 `SetWindowPos` 的 `HWND_TOPMOST`（Windows）。
+- 若点击穿透失效：确认 `setIgnoreCursorEvents` 在游戏焦点下仍生效。
+- 验收：在测试游戏中，浮窗可见且不拦截游戏鼠标输入。
+**任务 M5-T2：视频场景测试与修复**
+- 测试环境：全屏播放 YouTube/Bilibili 视频，字幕区域框选翻译。
+- 检查项：浮窗是否遮挡字幕、定时刷新是否跟随字幕变化、收起后悬浮球是否可见。
+- 调优：若轮询间隔 2 秒跟不上字幕速度，允许用户调至 1 秒；若浮窗遮挡字幕，默认位置改为框选区域上方。
+- 验收：观看英文视频时，浮窗译文与字幕同步更新，不遮挡关键画面。
+**任务 M5-T3：安装包构建**
+- Windows：`tauri build --target x86_64-pc-windows-msvc`，产出 `.msi`。
+- macOS：`tauri build --target universal-apple-darwin`，产出 `.dmg`。
+- 安装包内包含：宿主壳、DSH 运行时、插件、llama-server 可执行文件（模型不包含）。
+- 验收：在干净的 Windows 虚拟机中双击安装，启动后托盘出现，首次运行显示模型下载引导。
+**任务 M5-T4：首次启动引导与模型下载**
+- 首次启动时显示引导窗口：
+- 步骤 1：选择界面语言（M5 可跳过）。
+- 步骤 2：模型下载（显示大小、进度条、跳过按钮）。
+- 步骤 3：可选配置联网 API（可跳过）。
+- 模型下载源：优先官方 HuggingFace，备用镜像。下载后校验文件哈希。
+- 若用户跳过下载，软件仍可启动，但离线翻译不可用，浮窗显示“离线模型未安装，请配置联网 API 或下载模型”。
+- 验收：全新安装后首次启动，模型下载完成或跳过后软件正常进入托盘状态。
+### M5.5 M5 风险与缓解
+| 风险 | 缓解措施 |
+|------|----------|
+| 部分游戏独占全屏无法显示浮窗 | 在引导和文档中明确要求“无边框窗口化”，提供设置检查提示 |
+| 模型下载源被墙或速度慢 | 提供国内镜像地址作为备选；下载支持断点续传 |
+| macOS 签名与公证缺失导致无法打开 | V1 内部测试阶段可让用户右键打开；正式发布前申请 Apple Developer 证书 |
+## 附录：M1–M5 依赖关系与关键路径
+```
+M1（插件链路+离线翻译）
+↓
+M2（框选+浮窗静态显示）
+↓
+M3（定时+穿透+收起）──→ M5 依赖 M3 的浮窗交互进行场景测试
+↓
+M4（API 配置+故障转移）
+↓
+M5（场景调优+安装包）
+```
+**关键路径**：M1 → M2 → M3 → M5。M4 可在 M3 完成后与 M5 并行开发，但 M5 的安装包需要包含 M4 的配置面板，因此 M4 需在 M5 打包前完成。
+**建议并行点**：M3 开发期间可同步进行 M4 的配置面板 UI 开发（数据模型已由 M1 的 IPC 契约确定）。

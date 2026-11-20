@@ -1,0 +1,30 @@
+{
+  "name": "jiyi",
+  "productName": "即译",
+  "version": "1.0.0",
+  "private": true,
+  "description": "即译 —— 屏幕取词翻译助手（Electron 宿主壳 + Node 编排引擎，本地 OCR、联网 API 与离线模型双通道）",
+  "main": "src/main/main.js",
+  "license": "UNLICENSED",
+  "author": "Desktop Translator Project",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node scripts/launch.js",
+    "dev": "node scripts/launch.js --dev",
+    "smoke": "node scripts/launch.js --smoke-test",
+    "test": "node ../项目测试/run-all.js",
+    "test:unit": "node ../项目测试/run-all.js --only=unit",
+    "test:integration": "node ../项目测试/run-all.js --only=integration",
+    "ocr": "node src/cli.js ocr",
+    "selftest": "node src/cli.js selftest",
+    "package:win": "node scripts/package-win.js"
+  },
+  "dependencies": {
+    "onnxruntime-node": "1.22.0"
+  },
+  "devDependencies": {
+    "electron": "28.3.3"
+  }
+}

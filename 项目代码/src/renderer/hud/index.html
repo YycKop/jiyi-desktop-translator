@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'" />
+  <title>译文浮窗</title>
+  <link rel="stylesheet" href="../shared/base.css" />
+  <link rel="stylesheet" href="hud.css" />
+</head>
+<body class="transparent">
+  <div class="hud" id="hud">
+    <div class="bg-layer" id="bg-layer" hidden></div>
+    <div class="bg-veil" id="bg-veil" aria-hidden="true"></div>
+    <header class="hud-head interactive" id="head" title="拖动可移动浮窗">
+      <span class="head-grip" aria-hidden="true">⠿</span>
+      <span class="dot" id="dot"></span>
+      <span class="title" id="title">译文</span>
+      <span class="spacer"></span>
+      <span class="badge" id="engine" hidden></span>
+      <button class="icon interactive" id="btn-pause" title="暂停轮询（Esc）" data-state="running">
+        <svg class="ico ico-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 3.4v9.2L12.6 8z" /></svg>
+        <svg class="ico ico-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.6" y="3.4" width="2.6" height="9.2" rx="1" /><rect x="8.8" y="3.4" width="2.6" height="9.2" rx="1" /></svg>
+      </button>
+      <button class="icon interactive" id="btn-settings" title="打开设置">⚙</button>
+      <button class="icon interactive" id="btn-copy" title="复制译文">⧉</button>
+      <button class="icon interactive" id="btn-refresh" title="重新翻译">⟳</button>
+      <button class="icon interactive" id="btn-collapse" title="收起为悬浮球">—</button>
+      <button class="icon interactive" id="btn-close" title="隐藏浮窗">×</button>
+    </header>
+
+    <!-- 字幕模式的「二合一」手柄（第二十五轮需求 2）：
+         正中上方一个握把，短按向两侧展开设置菜单，按住拖动则移动窗口。
+         这样拖动区和设置区是同一个东西，不用在两个角落之间来回找。 -->
+    <div class="hud-dock" id="dock" hidden>
+      <div class="dock-side left">
+        <button class="icon interactive" id="btn-sub-settings" title="打开设置">⚙</button>
+        <button class="icon interactive" id="btn-sub-copy" title="复制译文">⧉</button>
+      </div>
+      <button class="dock-handle interactive" id="dock-handle" title="点击展开设置 · 按住拖动浮窗">
+        <span class="dock-grip" aria-hidden="true">⠿</span>
+        <span class="dock-caret" id="dock-caret" aria-hidden="true">▴</span>
+      </button>
+      <div class="dock-side right">
+        <button class="icon interactive" id="btn-sub-pause" title="暂停轮询" data-state="running">
+          <svg class="ico ico-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 3.4v9.2L12.6 8z" /></svg>
+          <svg class="ico ico-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.6" y="3.4" width="2.6" height="9.2" rx="1" /><rect x="8.8" y="3.4" width="2.6" height="9.2" rx="1" /></svg>
+        </button>
+        <button class="icon interactive" id="btn-sub-collapse" title="收起为悬浮球">—</button>
+        <button class="icon interactive" id="btn-sub-close" title="隐藏浮窗">×</button>
+      </div>
+    </div>
+
+    <main class="hud-body interactive" id="body">
+      <div class="error" id="error" hidden></div>
+      <div class="placeholder" id="placeholder">等待翻译…</div>
+      <div class="translation" id="translation"></div>
+
+      <div class="source-wrap" id="source-wrap" hidden>
+        <div class="source" id="source"></div>
+      </div>
+
+      <div class="history" id="history" hidden></div>
+    </main>
+
+    <!-- 第二十五轮需求 4：原文默认不显示，左下角这个按钮点开才展开原文记录 -->
+    <footer class="hud-foot">
+      <button class="source-toggle interactive" id="btn-source" aria-expanded="false" hidden>原文 ▸</button>
+      <span class="meta" id="meta"></span>
+      <span class="spacer"></span>
+      <span class="status" id="status"></span>
+    </footer>
+  </div>
+
+  <!-- 右下角拖拽调整大小（需求 3） -->
+  <div class="hud-resize interactive" id="grip" title="拖动调整浮窗大小"></div>
+
+  <!-- 字幕模式边缘：左右拖宽度、底部拖高度（第十九/二十轮需求 3） -->
+  <div class="hud-edge left interactive" id="edge-left" title="拖动调整字幕宽度" hidden></div>
+  <div class="hud-edge right interactive" id="edge-right" title="拖动调整字幕宽度" hidden></div>
+  <div class="hud-edge bottom interactive" id="edge-bottom" title="拖动调整字幕高度" hidden></div>
+
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="../shared/theme.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

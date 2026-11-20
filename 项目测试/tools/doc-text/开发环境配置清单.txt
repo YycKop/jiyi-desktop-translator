@@ -1,0 +1,84 @@
+=== FILE: 开发环境配置清单.docx ===
+# DSH 开发环境配置清单
+**文档编号**：DSH-ENV-001
+**版本**：v1.0
+**适用项目**：桌面翻译助手（需求书 v2 + 限制书 SEC-CONSTRAINTS-001）
+**生效时机**：M1 启动前完成配置
+## 1. 版本锁定与基础环境
+DSH 处于开发者预览阶段，官方明确警告“未来将出现破坏兼容性的变更”。必须锁定版本，禁止自动升级。
+| 编号 | 配置项 | 操作 | 验证方式 |
+|------|--------|------|----------|
+| ENV-01 | Node.js | 安装 Node.js ≥20（ES modules 要求） | `node --version` |
+| ENV-02 | DSH 版本锁定 | 在项目根 `package.json` 中固定 `@deepseek-ai/dsh-*` 的完整版本号（如 `0.2.1-rc.2`），禁止使用 `^` 或 `~` | `grep dsh package.json` 确认无浮动版本 |
+| ENV-03 | 记录版本基线 | 将 DSH 版本号写入 `AGENTS.md` 顶部，AI 每次会话可见 | 文件存在且包含版本号 |
+| ENV-04 | 禁止 `npx @latest` | 开发脚本中禁止使用 `npx @deepseek-ai/dsh@latest`，必须指向锁定版本 | 搜索项目脚本无 `@latest` |
+**依据**：dsh-ctxopt-compaction 明确声明适配 `0.2.1-rc.2` 且 `engines.dsh: “>=0.2.1-rc.2 <0.3.0”`，跨版本需重新验证兼容性。
+## 2. 插件开发知识库安装
+你的 AI 在写 DSH 插件时，需要随时可查的官方文档上下文，而非依赖训练数据中可能过时的记忆。
+| 编号 | 配置项 | 操作 | 验证方式 |
+|------|--------|------|----------|
+| KB-01 | 安装 `dsh-plugin-dev-kb` | `dsh plugin --profile web add dsh-plugin-dev-kb` | 插件出现在 profile 列表 |
+| KB-02 | 手动挂载声明 | 在 profile 的 `cordis.patch.yml` 末尾追加插件行（纯数据插件需手动挂载） | `dsh --profile web --dump-config` 输出包含 `dsh-plugin-dev-kb` |
+| KB-03 | 验证技能加载 | 新开会话问“帮我写一个最小的 dsh 插件”，确认 agent 引用 `kb/site/...` 路径 | 引用路径出现即通过 |
+该插件提供 188 页官方文档镜像 + 182 篇补充文档，挂载后 agent 在插件开发任务中自动加载知识库。
+## 3. AGENTS.md 项目上下文锚点
+DSH 官方开发指南要求面向 agent 的开发遵循 `AGENTS.md`。你的项目需要一份定制版，放在仓库根目录，AI 每次会话启动时自动读取。
+**文件位置**：`$PROJECT_ROOT/AGENTS.md`
+**必须包含的内容**：
+| 章节 | 内容 | 作用 |
+|------|------|------|
+| 版本基线 | `DSH_VERSION: 0.2.1-rc.2`（或你锁定的版本） | 防止 AI 按错误版本 API 编码 |
+| 项目结构 | 插件目录路径、宿主壳路径、IPC 契约文件位置 | AI 知道代码该放哪 |
+| 关键约束 | 截图必须经 IPC 委托宿主壳；翻译插件调用顺序：联网 API → 离线混元；`lib/index.js` 必须为纯 JS | 防止 AI 走弯路 |
+| 限制书摘要 | 引用 `SECURITY_CONSTRAINTS.md` 并列出最高优先级 3 条（禁止硬编码 Key、禁止全屏截图、禁止向非用户端点发数据） | 长会话中约束不丢失 |
+| 验收命令 | `dsh --profile <sandbox> --dump-config` 检查插件加载；本地 llama.cpp 测试命令 | AI 可自验证 |
+**参考**：DSH 生态已有 `AGENTS.md` 规范实践，dsh-roleplay 项目将其作为会话数据架构和插件关系的权威入口。
+## 4. 插件开发硬性规则（写入 AGENTS.md 或限制书附录）
+AI 容易在 DSH 插件上踩的坑，必须显式约束：
+| 编号 | 规则 | 后果 |
+|------|------|------|
+| PLG-01 | `lib/index.js` 必须是编译后的纯 JavaScript，不可为未编译 TS | 平台校验拒绝加载 |
+| PLG-02 | `package.json` 必须包含 `dsh.bundle.patch` 字段，指向 `patches/bundle.yaml` | 缺少该字段被上传校验拦截 |
+| PLG-03 | `patches/bundle.yaml` 即使无修改也须存在，内容为 `[]` | 文件缺失导致加载失败 |
+| PLG-04 | Tool 的 `execute` 必须响应 `exec.signal` | M3 定时轮询的防重入机制依赖取消信号 |
+| PLG-05 | 插件加载验证命令：`dsh --profile <sandbox> --dump-config` | 提交前必须通过，否则 M1 验收不通过 |
+**插件目录结构确认**（M1 详细书已定义，此处复核）：
+```
+dsh-plugin-screen-ocr/
+├── package.json          # dsh.bundle.patch 指向 patches/bundle.yaml
+├── patches/bundle.yaml   # 内容 []
+└── lib/index.js          # 纯 JS，module.exports = { name, apply(ctx) {...} }
+```
+## 5. 权限预设配置（DSH 会话层）
+你的限制书约束了“AI 不该做什么”，DSH 的权限预设是工具层的强制执行。两者配合形成双保险。
+| 编号 | 配置项 | 操作 | 验证方式 |
+|------|--------|------|----------|
+| PERM-01 | 使用 `workspace-write` 预设 | 新会话启动时选择 `workspace-write`（对应 `workspace-write` + `ask`），使越权操作触发人工审批 | 会话权限指示器显示 `workspace-write` |
+| PERM-02 | 禁止使用 `danger-full-access` | 开发期禁止选择该预设（对应 `never` 审批策略，越权操作不询问） | 会话启动时确认 |
+| PERM-03 | 可选：安装审批门禁插件 | 如需更细粒度控制，评估 `dsh-tool-approval`（注意该插件在 dsh 0.1.0-rc.6 上曾标记 install-fail，安装前先验证） | 安装后测试越权调用是否触发询问 |
+**依据**：DSH 权限预设将沙箱模式与审批策略捆绑为具名预设，默认表包含 `workspace-write`（write + ask）和 `danger-full-access`（full + never）。你的限制书第 9.1 条已要求使用 `workspace-write + ask`。
+## 6. 上下文压缩配置（长会话保护）
+项目跨 M1–M5 连续开发，AI 会话可能很长。DSH 内置压缩机制，但关键约束（如“禁止全屏截图”“API Key 不落盘”）可能在摘要中丢失。
+| 编号 | 配置项 | 操作 | 时机 |
+|------|--------|------|------|
+| CTX-01 | 评估 `dsh-ctxopt-compaction` | 安装：`dsh plugin --profile web add dsh-ctxopt-compaction` | M1 启动后观察首次长会话是否出现约束遗忘；若出现则启用 |
+| CTX-02 | 显式记忆登记 | 在每个里程碑（M1/M2/M3/M4/M5）开始时，向 AI 发送：“登记记忆：限制书核心条目——[列出 3 条]” | 每个里程碑启动时执行 |
+| CTX-03 | 验证压缩后约束保留 | 长会话压缩后，问 AI “当前项目禁止的截图行为是什么”，确认正确回答 | 压缩事件发生后抽查 |
+该插件提供“压缩收益判断”“显式记忆控制”“诊断保留”能力，适配 `dsh 0.2.1-rc.2`。
+## 7. 安全审计工具（交付前）
+| 编号 | 配置项 | 操作 | 时机 |
+|------|--------|------|------|
+| AUD-01 | 运行 `dsh-security-audit` | 在连接真实翻译 API 或加载混元模型之前，运行该插件检查配置、插件来源、网络暴露面 | M4 配置面板完成后、M5 交付前 |
+| AUD-02 | 插件来源检查 | 对每个新增依赖，用 `dsh-plugin-check` 或人工确认包名与建议一致 | 每次依赖变更时 |
+`dsh-security-audit` 是只读、脱敏的风险报告插件，在 dsh 0.1.0-rc.6 上可从源码构建。M5 交付前至少运行一次。
+## 8. 配置完成检查表
+| 编号 | 检查项 | 完成标准 |
+|------|--------|----------|
+| CK-01 | DSH 版本已锁定 | `package.json` 中无浮动版本 |
+| CK-02 | `AGENTS.md` 已创建 | 包含版本、结构、约束、验收命令四章节 |
+| CK-03 | `dsh-plugin-dev-kb` 已挂载 | `--dump-config` 输出包含该插件 |
+| CK-04 | 权限预设确认为 `workspace-write` | 开发会话启动时验证 |
+| CK-05 | 插件开发规则已写入 AGENTS.md | PLG-01 至 PLG-05 全部包含 |
+| CK-06 | 限制书已签署 | `SECURITY_CONSTRAINTS.md` 存在且签署栏完整 |
+| CK-07 | 上下文压缩插件已评估 | 记录是否启用及理由 |
+**签署确认**：本清单在 M1 启动前由开发负责人逐项完成并勾选，附于限制书签署页之后。M5 交付前对照 CK-01 至 CK-07 做最终复核。
