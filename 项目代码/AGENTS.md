@@ -518,6 +518,22 @@ hudSubtitleMode / settingsPriority / settingsHudMode` 均为 `true`（打包产�
 - **别用 `edit` 改带模板字符串的自检块**：一次误删 `(() => {` 包裹，直接让
   `executeJavaScript` 抛 `Script failed to execute`，`checks` 整段缺失；改完立刻 grep 回读确认。
 
+### 第二十八轮（热键收起/暂停状态、图标居中）
+
+1. **悬浮球常驻后不能再拿"球可见"判断收起状态**：`toggleCollapse()` 原本写 `ballVisible ? expand() : collapse()`，
+   球自第十九轮起一直显示 → 热键永远只走 `expand()`（用户反馈"收起后按热键还是显示浮窗"）。改为按
+   `wm.hudVisible` 判断：显示中 → 收起，否则 → 展开。
+2. **主进程改了状态要给所有窗口广播**：`startLoop` / `stopLoop` 只有 `refreshTray()`，热键/托盘切换定时翻译时
+   浮窗的 ⏸ 图标不会更新（只有点浮窗自己那个按钮才会）。两个方法里补 `wm.emit(EVENTS.LOOP_STARTED/STOPPED)`，
+   HUD 早就在监听这两个事件。
+3. **内联 SVG 是块级元素**：`button.icon` 靠 `text-align` 居中，对文字有效、对 `display:block` 的 `<svg>` 无效
+   （在 24px 固定宽按钮里贴左边，即"字幕条 ⏸ 不居中"）。`button.icon { display:inline-flex; align-items:center;
+   justify-content:center }` 一把修好，不必给每个图标写 margin。
+4. 自检补三条几何/状态断言：`hudHotkeyCollapse`（收起→hud 隐藏、球仍在→展开→hud 可见）、
+   `hudHotkeyPauseSync`（调主进程 `toggleLoop()` 后两个按钮的 `data-state` 一致且变化）、
+   `hudIconCentered`（可见 svg 相对按钮左右留白差 ≤1px、上下 ≤2px）。
+5. **GitHub 资产名用 ASCII**：`?name=即译-1.0.0-...zip` 上传后会被 GitHub 丢成 `-1.0.0-...zip`；
+   `项目测试/tools/gh-publish.ps1` 现在会剔掉非 ASCII（或直接传 `-AssetName`）。
 ### 第二十七轮（拖动中丢失 pointer capture）
 
 - **`lostpointercapture` 不是松手**：拖动时窗口本身在变形，被捕获的元素位置随之变化，

@@ -674,9 +674,14 @@ app.on('window-all-closed', (e) => {
     return { ok: true, action };
   }
 
+  /**
+   * F-16：热键收起/展开浮窗。
+   * 注意：悬浮球自第十九轮起是**常驻**的，不能用"球是否可见"判断当前状态，
+   * 否则热键永远只会走 expand()（用户反馈：收起后按热键还是显示浮窗）。
+   */
   toggleCollapse() {
-    const ballVisible = !!(this.wm.wins.ball && this.wm.wins.ball.isVisible());
-    return ballVisible ? this.expand() : this.collapse();
+    if (this.wm.hudVisible) return this.collapse();
+    return this.expand();
   }
 
   defaultBallPoint() {
@@ -799,15 +804,18 @@ app.on('window-all-closed', (e) => {
 
   // ---------------------------------------------------------------- 定时循环
 
-  startLoop(intervalMs) {
+  startLoop(intervalMs, reason = 'toggle') {
     const iv = this.engine.startLoop(intervalMs);
     this.refreshTray();
+    // 广播给所有窗口：热键/托盘暂停时，浮窗的 ⏸ 图标也要跟着变（第二十八轮需求 2）
+    this.wm.emit(EVENTS.LOOP_STARTED, { intervalMs: iv, reason });
     return { running: true, intervalMs: iv };
   }
 
   stopLoop(reason = 'tray') {
     this.engine.stopLoop(reason);
     this.refreshTray();
+    this.wm.emit(EVENTS.LOOP_STOPPED, { reason });
     return { running: false };
   }
 
@@ -2114,6 +2122,71 @@ async function runSmokeTest() {
         && (pauseSync.afterOne.sub.state !== pauseSync.before.sub.state
           || pauseSync.afterTwo.sub.state !== pauseSync.before.sub.state),
       ...pauseSync,
+    };
+
+    // 第二十八轮需求 3：图标要真正落在按钮正中间（左/右留白差 ≤1px，上下 ≤2px）
+    const iconCenter = await hudWin4.webContents.executeJavaScript(`
+      (() => {
+        const of = (id) => {
+          const b = document.getElementById(id);
+          if (!b) return null;
+          const svg = [...b.querySelectorAll('svg')].find((s) => getComputedStyle(s).display !== 'none');
+          if (!svg) return null;
+          const br = b.getBoundingClientRect();
+          const sr = svg.getBoundingClientRect();
+          return {
+            dx: Math.round((sr.left - br.left) - (br.right - sr.right)),
+            dy: Math.round((sr.top - br.top) - (br.bottom - sr.bottom)),
+          };
+        };
+        return { card: of('btn-pause'), sub: of('btn-sub-pause') };
+      })()
+    `, true);
+    report.checks.hudIconCentered = {
+      ok: !!iconCenter && [iconCenter.card, iconCenter.sub].every((x) => x && Math.abs(x.dx) <= 1 && Math.abs(x.dy) <= 2),
+      ...iconCenter,
+    };
+
+    // 第二十八轮需求 2：热键（= 主进程 toggleLoop）切换后，浮窗两个 ⏸ 图标都要跟着变
+    const readPauseState = () => hudWin4.webContents.executeJavaScript(`
+      (() => {
+        const of = (id) => { const b = document.getElementById(id); return b ? (b.dataset.state || '') : ''; };
+        return { card: of('btn-pause'), sub: of('btn-sub-pause') };
+      })()
+    `, true);
+    const pauseBefore = await readPauseState();
+    ctrl.toggleLoop(); // 等价于按 Ctrl+Shift+P
+    await sleep(700);
+    const pauseAfterHotkey = await readPauseState();
+    ctrl.toggleLoop();
+    await sleep(700);
+    const pauseRestored = await readPauseState();
+    report.checks.hudHotkeyPauseSync = {
+      ok: !!pauseBefore
+        && pauseAfterHotkey.card !== pauseBefore.card
+        && pauseAfterHotkey.card === pauseAfterHotkey.sub
+        && pauseRestored.card === pauseRestored.sub
+        && pauseRestored.card === pauseBefore.card,
+      before: pauseBefore,
+      afterHotkey: pauseAfterHotkey,
+      restored: pauseRestored,
+    };
+
+    // 第二十八轮需求 1：热键「收起为悬浮球」要真的收起（球是常驻的，不能拿球判断状态）
+    const collapseBefore = { hud: ctrl.wm.hudVisible, ball: !!(ctrl.wm.wins.ball && ctrl.wm.wins.ball.isVisible()) };
+    ctrl.toggleCollapse(); // 收起
+    await sleep(320);
+    const collapseAfter = { hud: ctrl.wm.hudVisible, ball: !!(ctrl.wm.wins.ball && ctrl.wm.wins.ball.isVisible()) };
+    ctrl.toggleCollapse(); // 展开
+    await sleep(420);
+    const collapseBack = { hud: ctrl.wm.hudVisible, ball: !!(ctrl.wm.wins.ball && ctrl.wm.wins.ball.isVisible()) };
+    report.checks.hudHotkeyCollapse = {
+      ok: collapseBefore.hud === true
+        && collapseAfter.hud === false && collapseAfter.ball === true
+        && collapseBack.hud === true,
+      before: collapseBefore,
+      collapsed: collapseAfter,
+      expanded: collapseBack,
     };
 
     // 第二十五轮需求 2：二合一控制条始终居中，展开时向两侧长、中心不动

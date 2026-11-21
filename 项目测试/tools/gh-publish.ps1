@@ -21,6 +21,7 @@ param(
   [string]$Token = $env:DSH_GH_PAT,
   [string]$Tag = 'v1.0.0',
   [string]$Zip = '',
+  [string]$AssetName = '',
   [string]$Root = '',
   [switch]$CreateRepo,
   [switch]$DryRun,
@@ -149,7 +150,9 @@ if (-not $SkipFiles) {
 if ($Zip) {
   $zipFull = if ([System.IO.Path]::IsPathRooted($Zip)) { $Zip } else { Join-Path $Root $Zip }
   if (-not (Test-Path $zipFull)) { throw "找不到 zip：$zipFull" }
-  $assetName = [System.IO.Path]::GetFileName($zipFull)
+  # 资产名必须是 ASCII：GitHub 会把 URL 里的中文丢掉（曾出现 '-1.0.0-...'）
+  $assetName = if ($AssetName) { $AssetName } else { [System.IO.Path]::GetFileName($zipFull) }
+  $assetName = ($assetName -replace '[^\x20-\x7E]', '') -replace '^-+', ''
 
   $release = $null
   try { $release = Invoke-GH -Path "$repoPath/releases/tags/$Tag" }

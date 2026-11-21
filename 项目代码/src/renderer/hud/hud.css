@@ -97,6 +97,15 @@ html[data-has-image="0"] .bg-veil { display: none; }
 
 /* 第二十五轮需求 3：暂停/继续用同一套内联 SVG，卡片与字幕条共用，
  * 状态由 data-state="running|paused" 驱动显隐，避免两处图标风格不一致。 */
+/* 第二十八轮需求 3：内联 SVG 是块级元素，按钮默认按 text-align 居中时它贴左边，
+ * 在 24px 的胶囊按钮里就会显得偏左。这里统一用 flex 把图标真正居中。 */
+.hud-head button.icon,
+.dock-side .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .icon .ico {
   width: 13px;
   height: 13px;
