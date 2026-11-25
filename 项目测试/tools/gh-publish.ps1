@@ -22,6 +22,8 @@ param(
   [string]$Tag = 'v1.0.0',
   [string]$Zip = '',
   [string]$AssetName = '',
+  # 额外资产，格式 "路径,资产名"（资产名必须是 ASCII），可重复传多次
+  [string[]]$ExtraAsset = @(),
   [string]$Root = '',
   [switch]$CreateRepo,
   [switch]$DryRun,
@@ -147,58 +149,26 @@ if (-not $SkipFiles) {
 }
 
 # ---------------------------------------------------------------- Release
-if ($Zip) {
-  $zipFull = if ([System.IO.Path]::IsPathRooted($Zip)) { $Zip } else { Join-Path $Root $Zip }
-  if (-not (Test-Path $zipFull)) { throw "找不到 zip：$zipFull" }
-  # 资产名必须是 ASCII：GitHub 会把 URL 里的中文丢掉（曾出现 '-1.0.0-...'）
-  $assetName = if ($AssetName) { $AssetName } else { [System.IO.Path]::GetFileName($zipFull) }
-  $assetName = ($assetName -replace '[^\x20-\x7E]', '') -replace '^-+', ''
+function Send-Asset {
+  param([string]$Path, [string]$Name, [string]$ContentType = 'application/zip')
 
-  $release = $null
-  try { $release = Invoke-GH -Path "$repoPath/releases/tags/$Tag" }
-  catch {
-    Write-Host "[gh] 创建 Release $Tag"
-    $notes = @"
-## 即译 v1.0.0（Windows x64 免安装）
-
-框选屏幕任意位置即可翻译。可联网（OpenAI 兼容接口），也可完全离线（本地 GGUF 模型）。
-
-### 这个包
-- 不含离线模型（约 212 MB）。想离线翻译：把 ``HY-MT1.5-1.8B-Q4_K_M.gguf`` 放进 ``userdata\models\``。
-- 解压后双击 ``即译.exe``。未签名程序会触发 SmartScreen：更多信息 → 仍要运行。
-
-### 快速开始
-1. 解压到任意非系统目录
-2. 双击 ``即译.exe``，按引导选目标语言
-3. ``Ctrl+Shift+T`` 拖框选区 → 松手出译文
-
-使用文档：[docs/使用说明.md](https://github.com/$Owner/$Repo/blob/main/docs/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
-"@
-    $release = Invoke-GH -Path "$repoPath/releases" -Method POST -Body @{
-      tag_name         = $Tag
-      target_commitish = $info.default_branch
-      name             = "即译 v1.0.0"
-      body             = $notes
-      draft            = $false
-      prerelease       = $false
-    }
-  }
-
-  Write-Host "[gh] 上传资产 $assetName（$([math]::Round((Get-Item $zipFull).Length / 1MB, 1)) MB）"
-  $uploadUrl = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=$assetName"
+  $name = ($Name -replace '[^\x20-\x7E]', '') -replace '^-+', ''
+  $size = [math]::Round((Get-Item $Path).Length / 1MB, 1)
+  Write-Host "[gh] 上传资产 $name（$size MB）"
+  $uploadUrl = "https://uploads.github.com/repos/$Owner/$Repo/releases/$($release.id)/assets?name=$name"
 
   # PS 5.1 没有预加载 HttpClient；这里改用 HttpWebRequest 流式上传，避免把 200 MB+ 读进内存
   $req = [System.Net.HttpWebRequest]::Create($uploadUrl)
   $req.Method = 'POST'
   $req.Headers.Add('Authorization', "Bearer $Token")
   $req.UserAgent = 'dsh-publisher'
-  $req.ContentType = 'application/zip'
+  $req.ContentType = $ContentType
   $req.Accept = 'application/vnd.github+json'
   $req.Timeout = 3600000
   $req.ReadWriteTimeout = 3600000
   $req.AllowWriteStreamBuffering = $false
-  $req.ContentLength = (Get-Item $zipFull).Length
-  $fs = [System.IO.File]::OpenRead($zipFull)
+  $req.ContentLength = (Get-Item $Path).Length
+  $fs = [System.IO.File]::OpenRead($Path)
   try {
     $s = $req.GetRequestStream()
     try { $fs.CopyTo($s, 1048576) } finally { $s.Dispose() }
@@ -215,6 +185,66 @@ if ($Zip) {
   $reader.Dispose(); $resp.Dispose()
   $asset = $text | ConvertFrom-Json
   Write-Host "[gh] 资产就绪：$($asset.browser_download_url)"
+}
+
+if ($Zip) {
+  $zipFull = if ([System.IO.Path]::IsPathRooted($Zip)) { $Zip } else { Join-Path $Root $Zip }
+  if (-not (Test-Path $zipFull)) { throw "找不到 zip：$zipFull" }
+  # 资产名必须是 ASCII：GitHub 会把 URL 里的中文丢掉（曾出现 '-1.0.0-...'）
+  $assetName = if ($AssetName) { $AssetName } else { [System.IO.Path]::GetFileName($zipFull) }
+
+  $release = $null
+  try { $release = Invoke-GH -Path "$repoPath/releases/tags/$Tag" }
+  catch {
+    Write-Host "[gh] 创建 Release $Tag"
+    $notes = @"
+## 即译 $Tag
+
+框选屏幕任意位置即可翻译。可联网（OpenAI 兼容接口），也可完全离线（本地 GGUF 模型）。
+本版起提供 **Windows / macOS（Apple Silicon 与 Intel）/ Linux** 三个平台的免安装包。
+
+### 各平台包
+- ``jiyi-$($Tag.TrimStart('v'))-portable-win-x64-nomodel.zip`` —— Windows 10/11 x64，解压后双击 ``即译.exe``
+- ``jiyi-$($Tag.TrimStart('v'))-macos-arm64.zip`` / ``…-macos-x64.zip`` —— macOS 11+，解压得到 ``即译.app``，拖进「应用程序」
+- ``jiyi-$($Tag.TrimStart('v'))-linux-x64.tar.gz`` —— Linux x64，解压后运行 ``./即译.sh``
+
+三个包都**不含**离线翻译模型（混元社区许可禁止向欧盟/英国/韩国分发）。
+需要离线翻译：自行下载 ``HY-MT1.5-1.8B-Q4_K_M.gguf``，并准备对应平台的 ``llama-server``。
+详见 [使用说明](https://github.com/$Owner/$Repo/blob/main/docs/%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)。
+
+### 首次打开
+- Windows：SmartScreen → 更多信息 → 仍要运行
+- macOS：未公证，**右键 → 打开**；仍被拦则 ``xattr -dr com.apple.quarantine /Applications/即译.app``；
+  首次还需在「隐私与安全性 → 屏幕录制」里勾选「即译」
+- Linux：用 ``即译.sh`` 启动（自带 ``--no-sandbox``）；缺库装 ``libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2``
+
+### 快速开始
+1. 解压/拖入应用程序
+2. 启动，按引导选目标语言
+3. ``Ctrl+Shift+T``（macOS ``⌘⇧T``）拖框选区 → 松手出译文
+"@
+    $release = Invoke-GH -Path "$repoPath/releases" -Method POST -Body @{
+      tag_name         = $Tag
+      target_commitish = $info.default_branch
+      name             = "即译 $Tag"
+      body             = $notes
+      draft            = $false
+      prerelease       = $false
+    }
+  }
+
+  Send-Asset -Path $zipFull -Name $assetName -ContentType 'application/zip'
+
+  foreach ($spec in $ExtraAsset) {
+    $parts = $spec.Split(',')
+    if ($parts.Count -lt 2) { throw "ExtraAsset 需要 '路径,资产名' 格式：$spec" }
+    $p = $parts[0].Trim()
+    $n = $parts[1].Trim()
+    $full = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $Root $p }
+    if (-not (Test-Path $full)) { throw "找不到附加资产：$full" }
+    $ct = if ($full -match '\.tar\.gz$') { 'application/gzip' } else { 'application/zip' }
+    Send-Asset -Path $full -Name $n -ContentType $ct
+  }
 }
 
 Write-Host "[gh] 完成：https://github.com/$Owner/$Repo"

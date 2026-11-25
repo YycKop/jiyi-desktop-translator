@@ -135,6 +135,16 @@ class LlamaServerManager {
       // 交给 PATH；若不存在 spawn 会报 ENOENT
       this.logger.warn('llama-server 未在预期位置找到，尝试 PATH');
     }
+    if (!fs.existsSync(binary) && process.platform !== 'win32') {
+      // macOS / Linux 的发布包不带 llama.cpp 二进制（体积与许可都另算），
+      // 与其让 spawn 抛 ENOENT，不如给一条能指导用户的消息。
+      this.lastError = 'LLAMA_NOT_INSTALLED';
+      throw err(
+        CODES.LLAMA_NOT_INSTALLED,
+        '当前离线运行时未包含本平台的可执行文件：请把 llama-server（llama.cpp 对应平台构建）放到 runtime/llama/ 下，'
+          + '或改用联网 API 翻译'
+      );
+    }
 
     const args = this.buildArgs();
     paths.ensure.logs();

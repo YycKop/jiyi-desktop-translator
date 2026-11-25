@@ -1,7 +1,7 @@
 {
   "name": "jiyi",
   "productName": "即译",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "即译 —— 屏幕取词翻译助手（Electron 宿主壳 + Node 编排引擎，本地 OCR、联网 API 与离线模型双通道）",
   "main": "src/main/main.js",

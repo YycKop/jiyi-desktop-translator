@@ -30,6 +30,47 @@ const { HudPointerWatcher } = require('./hud-pointer');
 const { BallPointerWatcher } = require('./ball-pointer');
 
 const APP_ID = 'com.desktoptranslator.app';
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+
+/**
+ * 应用菜单：Windows/Linux 用无菜单栏的无边框风格；macOS 必须保留应用菜单，
+ * 否则 ⌘Q / ⌘C / ⌘V / ⌘W 这些系统级快捷键全部失效（macOS 把它们绑在菜单项上）。
+ */
+function applyApplicationMenu() {
+  if (!IS_MAC) {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+  const template = [
+    {
+      label: app.name || '即译',
+      submenu: [
+        { role: 'about', label: '关于即译' },
+        { type: 'separator' },
+        {
+          label: '打开设置',
+          accelerator: 'Command+,',
+          click: () => { try { ctrl.wm.openSettings('general'); } catch (e) { /* 引擎未就绪 */ } },
+        },
+        { type: 'separator' },
+        { role: 'hide', label: '隐藏即译' },
+        { role: 'hideOthers', label: '隐藏其他' },
+        { role: 'unhide', label: '全部显示' },
+        { type: 'separator' },
+        {
+          label: '退出即译',
+          accelerator: 'Command+Q',
+          click: () => { Promise.resolve(ctrl.quit()).catch(() => app.exit(0)); },
+        },
+      ],
+    },
+    { role: 'editMenu', label: '编辑' },
+    { role: 'windowMenu', label: '窗口' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 // AUMID 必须在 ready 之前注册，否则 app.setUserTasks（任务栏 JumpList）会返回 false，
 // 任务栏右键里就没有「退出程序」等任务。
 try { app.setAppUserModelId(APP_ID); } catch (e) { /* 忽略：个别系统策略下不可用 */ }
@@ -2563,9 +2604,16 @@ app.on('before-quit', async (e) => {
   await ctrl.quit();
 });
 
+// macOS：点 Dock 图标（应用已在后台驻留）时给个可见反馈，与 Windows 双击 exe 的行为对齐
+app.on('activate', () => {
+  try {
+    if (ctrl && ctrl.wm) ctrl.wm.openSettings('general');
+  } catch { /* 引擎尚未就绪 */ }
+});
+
 app.whenReady().then(async () => {
   if (!gotLock) return; // 非首个实例：上面已 app.exit(0)，这里再兜一层，避免并发写配置/日志
-  Menu.setApplicationMenu(null); // 隐藏默认菜单栏（无边框风格）
+  applyApplicationMenu(); // macOS：必须有应用菜单（⌘Q/⌘C 等系统快捷键挂在菜单项上）
   try {
     await ctrl.bootstrap();
     if (process.argv.includes('--diag-windows')) {

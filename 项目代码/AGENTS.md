@@ -553,6 +553,29 @@ hudSubtitleMode / settingsPriority / settingsHudMode` 均为 `true`（打包产�
   要在 JS 里 `node.style.setProperty('--i', i)`（CSSOM 不受 CSP 限制）。
   这条一直躺在 `integration/ipc-contract.test.js` 里，别等发版才发现。
 
+### 第二十九轮（macOS / Linux 交叉打包）
+
+- **跨平台包不需要目标平台**：官方 Electron 运行时 zip + 我们自己的 app 目录 + 按平台裁剪的
+  `onnxruntime-node`，在 Windows 上就能拼出 mac/linux 包（`scripts/build-cross.py`）。
+  但**必须在文档里说清"未在真机验证"**，并给出各平台首次打开的拦截说明。
+- **`ZipInfo.from_file()` 会强制 `ZIP_STORED`**：即使 `ZipFile(..., ZIP_DEFLATED)` 也照旧，
+  zip 一点不压缩（mac 包因此 305 MB）。要显式 `zi.compress_type = ZIP_DEFLATED`。
+- **Windows 上 `os.stat()` 没有 unix 权限位**（全是 0o666）：tar 用 `TarInfo` 显式给 0755/0644，
+  zip 用 `external_attr = (0o100000|perm) << 16`；mac 的 `.app` 可执行文件按路径推断（`Contents/MacOS/*`、
+  无扩展名的 `Versions/A/Electron Framework`、`*.dylib`、`*.node`），否则 `即译.app` 打不开。
+- **zip 裁剪要按前缀而不是叶子名**：`bin/napi-v6/linux/x64/...` 若只比较文件所在层，
+  会把 `bin/napi-v6/linux` 整个目录剪掉，linux 包里就没有 `libonnxruntime.so.1`。
+- **macOS 必须有应用菜单**：`Menu.setApplicationMenu(null)` 会让 ⌘Q/⌘C/⌘V 全失效；
+  mac 上建最小菜单（关于/设置 ⌘, /隐藏/退出 + 编辑 + 窗口角色）。`app.on('activate')` 也要处理，
+  否则点 Dock 图标没反应。
+- **Linux 免安装包必须自带启动脚本**：解压后 `chrome-sandbox` 属主是用户，Chromium 直接拒绝启动
+  （"SUID sandbox helper ... not configured"），`即译.sh` 里带 `--no-sandbox`；`.desktop` 用 LF
+  （Windows 默认写 CRLF，个别桌面环境会把 `\r` 带进 Exec）。
+- **离线运行时按平台缺失时要给明确错误**：`llama/server.js` 在非 Windows 上找不到 `llama-server`
+  时抛「当前平台未包含离线运行时」，而不是 ENOENT —— 否则用户看到的是莫名 NPE。
+- **`gh-publish.ps1` 的资产名必须 ASCII**，且 PS 5.1 没有预加载 `HttpClient`，大文件走
+  `HttpWebRequest` 流式上传；一次 Release 可用 `-ExtraAsset '路径,名'` 追加多平台包。
+
 ## 7. 已记录的技术偏离（需在文档中保持一致）
 
 | 偏离点 | 原方案 | 实际方案 | 原因 |
